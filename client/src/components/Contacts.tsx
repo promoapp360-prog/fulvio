@@ -12,7 +12,7 @@ export function ContactCards() {
   return (
     <div className="grid gap-4 sm:grid-cols-3">
       {items.map((i) => (
-        <a key={i.label} href={i.href} target={i.href.startsWith("http") ? "_blank" : undefined} rel="noreferrer" className="card flex items-center gap-3 transition hover:-translate-y-0.5">
+        <a key={i.label} href={i.href} target={i.href.startsWith("http") ? "_blank" : undefined} rel="noreferrer" className="card flex min-w-0 items-center gap-3 transition hover:-translate-y-0.5">
           <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-brand-sky text-brand-turquoise"><i.icon size={20} /></span>
           <span className="min-w-0"><span className="block text-xs font-bold uppercase text-slate-500">{i.label}</span><span className="block truncate font-bold text-brand-navy">{i.value}</span></span>
         </a>

@@ -21,15 +21,16 @@ const OVERRIDE_KEY: Record<MascotKind, string> = {
   welcome: "mascotWelcome", toelettatura: "mascotGrooming", "self-service": "mascotSelfService", pensione: "mascotBoarding", "pet-shop": "mascotShop", fidelity: "mascotFidelity",
 };
 
-/** Mascotte ufficiale: sempre lo stesso cane, nelle varianti del brand board (sostituibili dal gestionale). */
+/** Poppy, mascotte ufficiale: stesso cane e accessori originali, senza frammenti della brand board. */
 export function Mascot({ kind, className = "h-32", alt }: { kind: MascotKind; className?: string; alt?: string }) {
   const { data: s } = usePublicSettings();
   const custom = s?.brand?.[OVERRIDE_KEY[kind]];
-  if (custom) return <img src={custom} alt={alt ?? "Mascotte Dog's Planet"} loading="lazy" className={`${className} w-auto object-contain`} />;
+  if (custom) return <img src={custom} alt={alt ?? "Poppy, la mascotte di Dog's Planet"} loading="lazy" className={`${className} max-w-full w-auto object-contain`} />;
+  const asset = kind === "welcome" ? "mascotte-welcome" : `poppy-${kind}`;
   return (
-    <picture>
-      <source srcSet={`/brand/mascotte-${kind}.webp`} type="image/webp" />
-      <img src={`/brand/mascotte-${kind}.png`} alt={alt ?? "Mascotte Dog's Planet"} loading="lazy" className={`${className} w-auto object-contain`} />
+    <picture className="contents">
+      <source srcSet={`/brand/${asset}.webp`} type="image/webp" />
+      <img src={`/brand/${asset}.png`} alt={alt ?? "Poppy, la mascotte di Dog's Planet"} loading="lazy" className={`${className} max-w-full w-auto object-contain`} />
     </picture>
   );
 }
@@ -38,8 +39,8 @@ export function Mascot({ kind, className = "h-32", alt }: { kind: MascotKind; cl
 export function BookingButton({ className = "", size = "md" }: { className?: string; size?: "md" | "lg" }) {
   return (
     <Link href="/richiedi-prenotazione"
-      className={`inline-flex items-center justify-center rounded-full bg-brand-navy font-display font-bold text-white shadow-soft transition hover:-translate-y-0.5 hover:bg-[#09337a] ${size === "lg" ? "px-7 py-4 text-base sm:text-lg" : "px-5 py-2.5 text-sm"} ${className}`}>
-      Richiedi la prenotazione&nbsp;<span className="text-[#3fd5e4]">on Line</span>
+      className={`inline-flex items-center justify-center rounded-full bg-brand-navy font-display font-bold text-white shadow-soft transition hover:-translate-y-0.5 hover:bg-[#09337a] ${size === "lg" ? "px-6 py-4 text-sm sm:text-base" : "px-5 py-2.5 text-sm"} ${className}`}>
+      <span>Richiedi la prenotazione <span className="whitespace-nowrap text-[#3fd5e4]">on Line</span></span>
     </Link>
   );
 }

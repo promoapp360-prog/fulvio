@@ -17,12 +17,12 @@ export function PageHero({ title, subtitle, mascot }: { title: string; subtitle?
 }
 
 /** Pagina con contenuti modificabili dal gestionale (Contenuti del sito). */
-export default function CmsPage({ slug, mascot, children, fallbackTitle }: { slug: string; mascot?: MascotKind; children?: React.ReactNode; fallbackTitle?: string }) {
+export default function CmsPage({ slug, mascot, children, fallbackTitle, title, subtitle }: { slug: string; mascot?: MascotKind; children?: React.ReactNode; fallbackTitle?: string; title?: string; subtitle?: string }) {
   const { data, isLoading } = usePage(slug);
   if (isLoading) return <Spinner />;
   return (
     <>
-      <PageHero title={data?.title || fallbackTitle || ""} subtitle={data?.subtitle} mascot={mascot} />
+      <PageHero title={title ?? data?.title ?? fallbackTitle ?? ""} subtitle={subtitle ?? data?.subtitle} mascot={mascot} />
       <div className="container-dp py-10">
         {data?.imageUrl && <img src={data.imageUrl} alt={data.title} className="mb-8 max-h-96 w-full rounded-3xl object-cover" loading="lazy" />}
         {data?.body && <Markdown text={data.body} className="max-w-3xl" />}

@@ -29,8 +29,8 @@ export default function ShopPage() {
   if (isLoading) return <Spinner />;
   if (!data?.enabled) {
     return (
-      <CmsPage slug="pet-shop" mascot="pet-shop" fallbackTitle="Pet Shop">
-        <div className="mt-10 flex items-center gap-4 rounded-3xl bg-brand-sky p-6"><Mascot kind="pet-shop" className="h-24" /><p className="text-lg font-bold text-brand-navy">Pet Shop – In arrivo. Torna a trovarci presto!</p></div>
+      <CmsPage slug="pet-shop" mascot="pet-shop" title="LaPappadiPoppy" subtitle="Coming Soon">
+        <div className="mt-8 rounded-3xl bg-brand-sky p-6 text-brand-navy"><p className="font-semibold">Poppy sta preparando qualcosa di speciale.</p><p className="mt-2 text-sm leading-relaxed">Gli acquisti online non sono ancora disponibili. Nel frattempo trovi i nostri prodotti in negozio.</p></div>
       </CmsPage>
     );
   }
@@ -45,7 +45,7 @@ export default function ShopPage() {
   const open = async (p: any) => { if (p.hasVariants) setDetail(await get(`/api/public/products/${p.id}`)); else add(p, null); };
 
   return (
-    <CmsPage slug="pet-shop" mascot="pet-shop" fallbackTitle="Pet Shop">
+    <CmsPage slug="pet-shop" mascot="pet-shop" title="LaPappadiPoppy" subtitle="">
       <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap gap-2">
           <button className={`btn-sm ${!cat ? "btn-navy" : "btn-outline"}`} onClick={() => setCat("")}>Tutti</button>

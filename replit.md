@@ -16,3 +16,11 @@ Progetto PromoApp: sito pubblico + PWA + area clienti + gestionale completo per 
 - `ADMIN_INITIAL_PASSWORD` va fornita in modo sicuro, mai da esempi della documentazione. Il primo accesso con username `Admin` richiede il cambio password.
 - Non collegare servizi facoltativi né pubblicare senza autorizzazione.
 - Repository sorgente: `https://github.com/promoapp360-prog/fulvio.git`, branch `main`. Non usare force push.
+
+## Identità visiva e shop
+
+- La mascotte si chiama **Poppy** in tutta l'app. Non cambiarne muso, pelliccia o identità e non inventare altri cani o loghi.
+- Conservare il logo ufficiale blu/turchese e la foto originale. I derivati puliti delle cinque illustrazioni rimuovono solo frammenti esterni della brand board; gli originali non vanno sovrascritti.
+- Nome pubblico dello shop: **LaPappadiPoppy**, seguito da **Coming Soon** finché gli acquisti sono disabilitati. Conservare il backend e-commerce e la rotta `/pet-shop`; non abilitare gli acquisti senza richiesta.
+- CTA esatta: **Richiedi la prenotazione on Line**, con **on Line** in colore contrastante.
+- Il restyling autorizzato riguarda homepage, header e presentazione pubblica correlata: non riscrivere gestionale, autenticazione o dati.

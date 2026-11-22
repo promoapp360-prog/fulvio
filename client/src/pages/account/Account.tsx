@@ -307,7 +307,7 @@ function Boarding() {
 function Orders() {
   const { data, isLoading } = useQuery<any[]>({ queryKey: ["acc-orders"], queryFn: () => get("/api/account/orders") });
   if (isLoading) return <Spinner />;
-  if (!data?.length) return <Empty>Nessun ordine. <Link href="/pet-shop" className="font-bold underline">Vai al Pet Shop</Link></Empty>;
+  if (!data?.length) return <Empty>Nessun ordine. <Link href="/pet-shop" className="font-bold underline">Vai a LaPappadiPoppy</Link></Empty>;
   return (
     <div className="space-y-3">{data.map((o) => (
       <div key={o.id} className="card">

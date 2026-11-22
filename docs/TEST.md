@@ -1,5 +1,15 @@
 # Esiti dei test – Dog's Planet
 
+## Restyling mirato homepage — 22/11/2026
+
+- TypeScript e compilazione: superati. Suite di logica originale: 14/14 superati.
+- Verifica browser a **390, 768, 1024, 1280 e 1440 px**: nessuno scorrimento orizzontale, cinque card e una sola foto nell'hero. Controllate visivamente homepage desktop/mobile e card.
+- Header: voci desktop senza tagli o sovrapposizioni; hamburger su tablet/mobile, apertura e chiusura con Escape, chiusura dopo navigazione.
+- Rotte aperte nel browser: `/toelettatura`, `/servizi`, `/self-service`, `/pensione-casalinga`, `/fidelity-card`, `/pet-shop`, `/chi-siamo`, `/contatti`, `/richiedi-prenotazione`, `/login`, `/registrazione`, `/account`, `/admin`. Documenti caricati senza errori JavaScript; gli ultimi due mantengono il controllo di accesso, non è un collaudo dei flussi autenticati.
+- Pagina shop: titolo LaPappadiPoppy, sottotitolo Coming Soon, nessun carrello o pulsante d'ordine. API pubblica prodotti con `enabled: false` e lista vuota.
+- API admin anonima: HTTP 401. Richiesta ordine senza origine: HTTP 403 dal controllo CSRF originale.
+- Nessuna migrazione o modifica di dati; nessun intervento a prenotazioni, CRM, autenticazione o pagamenti. Nessuna immagine AI generata: foto e logo originali preservati, illustrazioni ripulite geometricamente in derivati separati.
+
 ## Importazione nell'applicazione Replit — 22/11/2026
 
 Ambiente reale Replit, Node.js 24, PostgreSQL dedicato al progetto. Le limitazioni descritte nel resoconto storico qui sotto non valgono per questa verifica.
