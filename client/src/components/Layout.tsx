@@ -123,6 +123,7 @@ export function Footer() {
             <li><Link href="/cookie-policy" className="hover:underline">Cookie Policy</Link></li>
             <li><Link href="/condizioni-del-servizio" className="hover:underline">Condizioni del servizio</Link></li>
             <li><Link href="/installa-app" className="hover:underline">Installa l'app sul telefono</Link></li>
+            <li><Link href="/admin" className="inline-flex min-h-11 items-center hover:underline">Admin</Link></li>
             <li><button className="min-h-11 text-left hover:underline" onClick={() => window.dispatchEvent(new Event("dp-cookie-open"))}>Gestisci preferenze cookie</button></li>
             {s?.site?.socialInstagram && <li><a href={s.site.socialInstagram} target="_blank" rel="noreferrer" className="hover:underline">Instagram</a></li>}
             {s?.site?.socialFacebook && <li><a href={s.site.socialFacebook} target="_blank" rel="noreferrer" className="hover:underline">Facebook</a></li>}
