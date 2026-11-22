@@ -19,30 +19,36 @@ export const googleMapsUrl = `https://www.google.com/maps/dir/?api=1&destination
 export const appleMapsUrl = `https://maps.apple.com/?daddr=${encodeURIComponent(fullAddress + ", Italia")}`;
 export const mapEmbedUrl = `https://www.google.com/maps?q=${encodeURIComponent(fullAddress + ", Italia")}&output=embed`;
 
+// Permessi configurabili (punto 29) – verificati sempre dal backend
 export const PERMISSIONS = {
-  agenda: "Agenda",
-  richieste: "Richieste di prenotazione",
-  clienti: "Clienti e cani",
-  servizi: "Servizi e listino",
-  operatori: "Operatori e turni",
-  ore: "Ore lavorate e compensi",
-  pagamenti: "Pagamenti e incassi",
-  selfservice: "Self-service",
-  fidelity: "Fidelity Card",
-  shop: "Shop e ordini",
-  magazzino: "Magazzino e fornitori",
-  pensione: "Pensione casalinga",
-  contenuti: "Contenuti del sito",
+  agenda_view: "Visualizzare agenda",
+  agenda_edit: "Modificare agenda",
+  richieste: "Confermare richieste",
+  clienti: "Consultare clienti",
+  clienti_edit: "Modificare clienti",
+  cani_edit: "Modificare schede cane",
+  servizi: "Consultare servizi",
+  pagamenti: "Registrare pagamenti",
+  incassi: "Visualizzare incassi",
+  magazzino: "Gestire magazzino",
+  statistiche: "Visualizzare statistiche",
+  personale: "Gestire personale",
+  impostazioni: "Accedere alle impostazioni",
+  shop: "Gestire prodotti e ordini",
+  pensione: "Gestire pensione casalinga",
+  fidelity: "Gestire Fidelity Card",
   marketing: "Promozioni e comunicazioni",
-  statistiche: "Statistiche e report",
+  contenuti: "Contenuti sito e SEO",
+  privacy: "Privacy e consensi",
   utenti: "Utenti e permessi",
-  impostazioni: "Impostazioni",
 } as const;
 export type Permission = keyof typeof PERMISSIONS;
 
 export const ROLE_LABELS: Record<string, string> = {
-  admin: "Amministratore", staff: "Staff", operator: "Operatore", customer: "Cliente",
+  admin: "Admin", manager: "Responsabile", operator: "Operatore", customer: "Cliente",
 };
+/** Permessi predefiniti dell'operatore: agenda e ore personali. */
+export const OPERATOR_DEFAULT_PERMS = ["agenda_view"];
 
 export const STATUS_LABELS: Record<string, string> = {
   richiesta: "Richiesta ricevuta",
@@ -98,10 +104,34 @@ export const ORDER_STATUS: Record<string, string> = {
 };
 
 export const BOARDING_STATUS: Record<string, string> = {
-  richiesta: "Richiesta", confermata: "Confermata", rifiutata: "Rifiutata", in_corso: "In corso", completata: "Completata", annullata: "Annullata",
+  richiesta: "Richiesta", info_richieste: "Informazioni richieste", proposta: "Nuove date proposte", confermata: "Confermata", rifiutata: "Rifiutata", in_corso: "In corso", completata: "Completata", annullata: "Annullata",
 };
 
 export const WEEKDAYS = ["Domenica", "Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì", "Sabato"];
 
 export const euro = (cents: number | null | undefined) =>
   cents == null ? "—" : (cents / 100).toLocaleString("it-IT", { style: "currency", currency: "EUR" });
+
+export const LOYALTY_KINDS: Record<string, string> = {
+  accumulo: "Accumulo", utilizzo: "Utilizzo", scadenza: "Scadenza", proroga: "Proroga", rettifica: "Rettifica", storno: "Storno",
+};
+
+export const EMAIL_TEMPLATE_KEYS: Record<string, string> = {
+  registrazione: "Registrazione",
+  verifica_email: "Verifica email",
+  recupero_password: "Recupero password",
+  richiesta_ricevuta: "Richiesta appuntamento ricevuta",
+  appuntamento_confermato: "Conferma appuntamento",
+  appuntamento_pagamento: "Pagamento richiesto",
+  appuntamento_proposta: "Proposta nuovo orario",
+  appuntamento_modificato: "Modifica appuntamento",
+  appuntamento_annullato: "Cancellazione appuntamento",
+  appuntamento_rifiutato: "Richiesta non accettata",
+  appuntamento_completato: "Trattamento completato",
+  promemoria: "Promemoria appuntamento",
+  richiamo: "Richiamo periodico",
+  ordine_confermato: "Conferma ordine",
+  ordine_stato: "Modifica stato ordine",
+  pensione_aggiornamento: "Aggiornamento pensione",
+  comunicazione: "Comunicazione amministrativa",
+};

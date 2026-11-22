@@ -1,7 +1,7 @@
 import { Router } from "express";
 import rateLimit from "express-rate-limit";
 import { z } from "zod";
-import { and, asc, eq, gte, isNull, lte, or } from "drizzle-orm";
+import { and, asc, eq, gte, isNull, lte, or, sql } from "drizzle-orm";
 import { db } from "../db";
 import {
   pages, faqs, services, serviceVariants, serviceSupplements, operators, operatorServices, operatorShifts, products, promotions, dogs,
@@ -13,6 +13,8 @@ import { getSettings } from "../services/settings";
 import { h, HttpError, id, zDay } from "../util";
 import { todayRome } from "../time";
 import { BUSINESS } from "../../shared/constants";
+import { users, productVariants, productCategories } from "../../shared/schema";
+import { recordConsent } from "../services/consents";
 
 const r = Router();
 
@@ -85,19 +87,40 @@ r.get("/products", h(async (req, res) => {
   const s = await getSettings();
   if (!s.site.shopEnabled) return res.json({ enabled: false, rows: [] });
   const category = req.query.category ? String(req.query.category) : null;
+  const cats = await db.select({ name: productCategories.name }).from(productCategories).where(eq(productCategories.active, true)).orderBy(asc(productCategories.sortOrder), asc(productCategories.name));
+  const variantCounts = await db.select({ productId: productVariants.productId, n: sql<number>`count(*)::int`, stock: sql<number>`sum(${productVariants.stock})::int`, minPrice: sql<number>`min(${productVariants.priceCents})::int` })
+    .from(productVariants).where(eq(productVariants.active, true)).groupBy(productVariants.productId);
   const rows = await db.select({
     id: products.id, name: products.name, slug: products.slug, category: products.category, description: products.description,
     priceCents: products.priceCents, salePriceCents: products.salePriceCents, imageUrl: products.imageUrl, stock: products.stock, isFood: products.isFood,
   }).from(products).where(and(eq(products.active, true), eq(products.visibleOnline, true), category ? eq(products.category, category) : undefined))
     .orderBy(asc(products.category), asc(products.name)).limit(200);
-  res.json({ enabled: true, rows });
+  res.json({ enabled: true, categories: cats.map((c) => c.name), rows: rows.map((p) => { const v = variantCounts.find((x) => x.productId === p.id); return v ? { ...p, hasVariants: true, stock: v.stock } : p; }) });
 }));
 
 r.get("/products/:id", h(async (req, res) => {
   const [p0] = await db.select().from(products).where(and(eq(products.id, id(req.params.id)), eq(products.active, true), eq(products.visibleOnline, true)));
   if (!p0) throw new HttpError(404, "Prodotto non trovato");
   const { costCents, supplierId, ...pub } = p0;
-  res.json(pub);
+  const variants = await db.select({ id: productVariants.id, name: productVariants.name, priceCents: productVariants.priceCents, stock: productVariants.stock })
+    .from(productVariants).where(and(eq(productVariants.productId, p0.id), eq(productVariants.active, true))).orderBy(asc(productVariants.sortOrder));
+  res.json({ ...pub, variants });
+}));
+
+/** Disiscrizione dalle comunicazioni promozionali (link nelle email) – registrata nello storico consensi. */
+r.get("/unsubscribe", h(async (req, res) => {
+  const token = String(req.query.token || "");
+  res.set("Cache-Control", "no-store");
+  const [u] = token.length >= 16 ? await db.select().from(users).where(eq(users.unsubscribeToken, token)) : [];
+  if (u && u.consentMarketing) {
+    await db.update(users).set({ consentMarketing: false, consentDate: new Date() }).where(eq(users.id, u.id));
+    await recordConsent(null, { userId: u.id, kind: "marketing", granted: false, source: "link_disiscrizione", req });
+  }
+  res.type("html").send(`<!doctype html><html lang="it"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Disiscrizione</title>
+<body style="font-family:system-ui,sans-serif;background:#E6F7FF;color:#0B3D91;display:grid;place-items:center;min-height:100vh;margin:0;text-align:center;padding:24px">
+<div><img src="/brand/logo.png" alt="Dog's Planet" style="max-width:220px"><h1>${u ? "Disiscrizione completata" : "Link non valido"}</h1>
+<p>${u ? "Non riceverai più comunicazioni promozionali. Continuerai a ricevere solo le comunicazioni di servizio (conferme e promemoria)." : "Il link non è valido o è scaduto."}</p>
+<p><a href="/account/profilo" style="color:#00B6C8;font-weight:bold">Gestisci le preferenze</a></p></div></body></html>`);
 }));
 
 r.get("/promotions", h(async (_req, res) => {

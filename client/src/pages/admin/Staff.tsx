@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, Pencil, Download, Clock } from "lucide-react";
-import { PageTitle, Spinner, Empty, Modal, Field, Check, MoneyInput, ErrorBox, useToast } from "@/components/ui";
-import { get, post, patch } from "@/lib/api";
+import { Plus, Pencil, Download, Clock, KeyRound, RefreshCw, LogOut } from "lucide-react";
+import { PageTitle, Spinner, Empty, Modal, Field, Check, MoneyInput, ErrorBox, Tabs, Pager, StatusBadge, useToast } from "@/components/ui";
+import { get, post, patch, del } from "@/lib/api";
 import { useMe, can } from "@/lib/auth";
-import { todayISO, fmtDay, mins } from "@/lib/format";
+import { todayISO, fmtDay, mins, fmtDateTime, addDaysISO } from "@/lib/format";
 import { euro, ROLE_LABELS } from "@shared/constants";
 import { useAdminOperators } from "./AppointmentDetail";
 
@@ -14,7 +14,7 @@ export function Worklogs() {
   const qc = useQueryClient();
   const toast = useToast();
   const { data: me } = useMe();
-  const manager = me?.role === "admin" || can(me ?? null, "operatori");
+  const manager = me?.role === "admin" || can(me ?? null, "personale");
   const { data: ops } = useAdminOperators();
   const [from, setFrom] = useState(monthStart());
   const [to, setTo] = useState(todayISO());
@@ -37,9 +37,10 @@ export function Worklogs() {
 
   return (
     <div>
-      <PageTitle title="Ore lavorate e compensi" subtitle="Operatori a partita IVA – compenso orario modificabile per operatore">
+      <PageTitle title="Ore lavorate" subtitle="Presenze dei collaboratori (distinte dalle ore prenotate dai clienti), conteggiate al quarto d'ora">
         {me?.role === "operator" && <button className="btn-outline btn-sm" onClick={clock}><Clock size={14} /> Timbra</button>}
-        <a className="btn-outline btn-sm" href={`/api/admin/worklogs?${qs}&format=csv`}><Download size={14} /> CSV</a>
+        <a className="btn-outline btn-sm" href={`/api/admin/worklogs?${qs}&format=xlsx`}><Download size={14} /> Excel</a>
+        <a className="btn-outline btn-sm" href={`/api/admin/worklogs?${qs}&format=pdf`}><Download size={14} /> PDF</a>
         <button className="btn-primary btn-sm" onClick={() => { setErr(null); setEdit({ operatorId: op || ops?.[0]?.id, workDate: todayISO(), clockIn: "09:00", clockOut: "", breakMin: 0, note: "" }); }}><Plus size={14} /> Registra ore</button>
       </PageTitle>
       <div className="mb-4 flex flex-wrap gap-2">
@@ -50,23 +51,23 @@ export function Worklogs() {
       {isLoading ? <Spinner /> : (
         <>
           <div className="mb-5 grid gap-3 sm:grid-cols-3">{data.summary.map((s: any) => (
-            <div key={s.operatorId} className="card"><p className="font-bold">{s.name}</p><p className="text-sm text-slate-600">{s.days} giornate · {mins(s.minutes)}</p><p className="text-xl font-extrabold text-brand-navy">{euro(s.amountCents)}</p>{s.unpaidCents > 0 && <p className="text-xs text-amber-600">da liquidare {euro(s.unpaidCents)}</p>}</div>
+            <div key={s.operatorId} className="card"><p className="font-bold">{s.name}</p><p className="text-sm text-slate-600">{s.days} giornate · {mins(s.minutes)}</p><p className="text-xl font-extrabold text-brand-navy">{euro(s.amountCents)}</p>{s.unsettledCents > 0 && <p className="text-xs text-amber-600">non ancora liquidato {euro(s.unsettledCents)}</p>}</div>
           ))}</div>
           {!data.rows.length ? <Empty>Nessuna registrazione nel periodo.</Empty> : (
             <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
-              <table className="table-dp"><thead><tr>{manager && <th />}<th>Data</th><th>Operatore</th><th>Entrata</th><th>Uscita</th><th>Pausa</th><th>Effettivo</th><th>Compenso</th><th>Note</th><th /></tr></thead>
+              <table className="table-dp"><thead><tr><th>Data</th><th>Operatore</th><th>Entrata</th><th>Uscita</th><th>Pausa</th><th>Effettivo</th><th>Compenso</th><th>Note</th><th /></tr></thead>
                 <tbody>{data.rows.map((w: any) => (
                   <tr key={w.id}>
-                    {manager && <td><input type="checkbox" disabled={w.paid} checked={sel.includes(w.id)} onChange={(e) => setSel(e.target.checked ? [...sel, w.id] : sel.filter((x) => x !== w.id))} /></td>}
-                    <td>{fmtDay(w.workDate)}</td><td>{w.operatorName}</td><td>{w.clockIn}</td><td>{w.clockOut || <span className="text-amber-600">in corso</span>}</td><td>{w.breakMin}′</td><td>{mins(w.effectiveMin)}</td>
-                    <td>{euro(w.amountCents)}{w.paid && <span className="badge ml-1 bg-green-100 text-green-700">pagato</span>}</td>
+
+                    <td>{fmtDay(w.workDate)}</td><td>{w.operatorName}</td><td>{w.clockIn}</td><td>{w.clockOut || <span className="text-amber-600">in corso</span>}</td><td>{w.breakMin}′</td><td>{mins(w.effectiveMin)}{w.rawMin !== w.effectiveMin && w.clockOut && <span className="block text-[10px] text-slate-400">reali {mins(w.rawMin)}</span>}</td>
+                    <td>{euro(w.amountCents)}{w.paid ? <span className="badge ml-1 bg-green-100 text-green-700">pagato</span> : w.settlementId ? <span className="badge ml-1 bg-sky-100 text-sky-700">liquidato</span> : null}</td>
                     <td className="text-xs">{w.note}{w.corrected && <span className="block text-amber-700">Corretto: {w.correctionNote}</span>}</td>
-                    <td><button className="btn-ghost btn-sm" onClick={() => { setErr(null); setEdit({ ...w, correctionNote: "" }); }}><Pencil size={14} /></button></td>
+                    <td>{!w.settlementId && <button className="btn-ghost btn-sm" onClick={() => { setErr(null); setEdit({ ...w, correctionNote: "" }); }}><Pencil size={14} /></button>}</td>
                   </tr>
                 ))}</tbody></table>
             </div>
           )}
-          {me?.role === "admin" && sel.length > 0 && <button className="btn-navy btn-sm mt-3" onClick={async () => { await post("/api/admin/worklogs/mark-paid", { ids: sel }); setSel([]); qc.invalidateQueries({ queryKey: ["worklogs"] }); toast("Segnate come pagate"); }}>Segna {sel.length} come pagate</button>}
+          <p className="mt-3 text-xs text-slate-500">Il pagamento si gestisce in <a href="/admin/compensi" className="underline">Compensi collaboratori</a> (liquidazione settimanale del sabato).</p>
         </>
       )}
       <Modal open={!!edit} onClose={() => setEdit(null)} title={edit?.id ? "Modifica registrazione" : "Registra ore"}>
@@ -99,13 +100,13 @@ export function Users() {
   const [edit, setEdit] = useState<any>(null);
   const [err, setErr] = useState<unknown>(null);
   const [temp, setTemp] = useState<string | null>(null);
+  const [tab, setTab] = useState("utenti");
   const save = async () => {
     setErr(null);
-    const body: any = { firstName: edit.firstName, lastName: edit.lastName, email: edit.email, phone: edit.phone || null, role: edit.role, permissions: edit.permissions, active: edit.active };
-    if (edit.password) body.password = edit.password;
+    const body: any = { firstName: edit.firstName, lastName: edit.lastName, email: edit.email, username: edit.username || null, phone: edit.phone || null, role: edit.role, permissions: edit.permissions, active: edit.active };
     try {
       if (edit.id) await patch(`/api/admin/users/${edit.id}`, body);
-      else { const r = await post("/api/admin/users", body); if (r.tempPassword) setTemp(`Password temporanea per ${r.user.email}: ${r.tempPassword}`); }
+      else { const r = await post("/api/admin/users", body); setTemp(`Credenziali temporanee per ${r.user.username || r.user.email}: ${r.tempPassword} (cambio obbligatorio al primo accesso)`); }
       toast("Utente salvato"); setEdit(null); qc.invalidateQueries({ queryKey: ["staff-users"] });
     } catch (e) { setErr(e); }
   };
@@ -114,17 +115,25 @@ export function Users() {
   return (
     <div>
       <PageTitle title="Utenti e permessi" subtitle="Personale con accesso al gestionale">
-        <button className="btn-primary btn-sm" onClick={() => { setErr(null); setEdit({ firstName: "", lastName: "", email: "", phone: "", role: "staff", permissions: ["agenda", "richieste", "clienti"], active: true, password: "" }); }}><Plus size={14} /> Nuovo utente</button>
+        <button className="btn-primary btn-sm" onClick={() => { setErr(null); setEdit({ firstName: "", lastName: "", email: "", username: "", phone: "", role: "operator", permissions: ["agenda_view"], active: true }); }}><Plus size={14} /> Nuovo utente</button>
       </PageTitle>
-      {temp && <div className="mb-4 rounded-xl bg-green-50 p-3 text-sm font-semibold text-green-800">{temp} – comunicala in modo riservato e chiedi di cambiarla al primo accesso.</div>}
+      <Tabs value={tab} onChange={setTab} items={[{ value: "utenti", label: "Utenti" }, ...(me?.role === "admin" ? [{ value: "accessi", label: "Registro accessi" }] : [])]} />
+      {tab === "accessi" ? <LoginLog /> : <>
+      {temp && <div className="mb-4 rounded-xl bg-green-50 p-3 text-sm font-semibold text-green-800">{temp} – comunicala in modo riservato.</div>}
       <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
         <table className="table-dp"><thead><tr><th>Nome</th><th>Email</th><th>Ruolo</th><th>Permessi</th><th>Stato</th><th /></tr></thead>
           <tbody>{data.rows.map((u: any) => (
-            <tr key={u.id}><td className="font-bold">{u.firstName} {u.lastName}</td><td>{u.email}</td><td>{ROLE_LABELS[u.role]}</td>
+            <tr key={u.id}><td className="font-bold">{u.firstName} {u.lastName}{u.mustChangePassword && <span className="badge ml-1 bg-amber-100 text-amber-800">password temporanea</span>}</td><td>{u.email}{u.username && <span className="block text-xs text-slate-500">username: {u.username}</span>}</td><td>{ROLE_LABELS[u.role]}</td>
               <td className="text-xs">{u.role === "admin" ? "Tutti" : u.permissions.map((p: string) => perms[p]).join(", ") || "—"}</td><td>{u.active ? "Attivo" : "Disattivo"}</td>
-              <td><button className="btn-ghost btn-sm" disabled={u.role === "admin" && me?.role !== "admin"} onClick={() => { setErr(null); setEdit({ ...u, password: "" }); }}><Pencil size={14} /></button></td></tr>
+              <td className="whitespace-nowrap"><button className="btn-ghost btn-sm" disabled={u.role === "admin" && me?.role !== "admin"} onClick={() => { setErr(null); setEdit({ ...u }); }}><Pencil size={14} /></button>
+                {u.id !== me?.id && !(u.role === "admin" && me?.role !== "admin") && <>
+                  <button className="btn-ghost btn-sm" title="Reimposta accesso" onClick={async () => { if (confirm(`Generare una nuova password temporanea per ${u.firstName}?`)) { const r = await post(`/api/admin/users/${u.id}/reset-access`); setTemp(`Nuova password temporanea per ${u.username || u.email}: ${r.tempPassword}`); } }}><KeyRound size={14} /></button>
+                  <button className="btn-ghost btn-sm" title="Richiedi cambio password" onClick={async () => { await post(`/api/admin/users/${u.id}/require-password-change`); toast("Al prossimo accesso dovrà cambiare la password"); }}><RefreshCw size={14} /></button>
+                  <button className="btn-ghost btn-sm" title="Chiudi tutte le sessioni" onClick={async () => { await post(`/api/admin/users/${u.id}/revoke-sessions`); toast("Sessioni revocate"); }}><LogOut size={14} /></button>
+                </>}</td></tr>
           ))}</tbody></table>
       </div>
+      </>}
       <Modal open={!!edit} onClose={() => setEdit(null)} title={edit?.id ? "Modifica utente" : "Nuovo utente"} wide>
         {edit && (
           <form onSubmit={(e) => { e.preventDefault(); save(); }} className="space-y-3">
@@ -133,9 +142,9 @@ export function Users() {
               <Field label="Cognome"><input className="input" required value={edit.lastName} onChange={(e) => setEdit({ ...edit, lastName: e.target.value })} /></Field>
               <Field label="Email"><input type="email" className="input" required value={edit.email} onChange={(e) => setEdit({ ...edit, email: e.target.value })} /></Field>
               <Field label="Telefono"><input className="input" value={edit.phone || ""} onChange={(e) => setEdit({ ...edit, phone: e.target.value })} /></Field>
+              <Field label="Username (facoltativo)" hint="Per accedere senza email"><input className="input" autoCapitalize="none" value={edit.username || ""} onChange={(e) => setEdit({ ...edit, username: e.target.value })} /></Field>
               <Field label="Ruolo"><select className="input" value={edit.role} onChange={(e) => setEdit({ ...edit, role: e.target.value })}>
-                <option value="staff">Staff</option><option value="operator">Operatore (agenda e ore personali)</option>{me?.role === "admin" && <option value="admin">Amministratore (accesso completo)</option>}</select></Field>
-              <Field label={edit.id ? "Nuova password (facoltativa)" : "Password (vuoto = generata)"}><input type="password" minLength={8} className="input" value={edit.password} onChange={(e) => setEdit({ ...edit, password: e.target.value })} /></Field>
+                <option value="operator">Operatore (agenda e ore personali)</option><option value="manager">Responsabile (permessi personalizzabili)</option>{me?.role === "admin" && <option value="admin">Admin (accesso completo)</option>}</select></Field>
             </div>
             {edit.role !== "admin" && (
               <div><p className="label">Permessi</p>
@@ -148,6 +157,99 @@ export function Users() {
           </form>
         )}
       </Modal>
+    </div>
+  );
+}
+
+function LoginLog() {
+  const [page, setPage] = useState(1);
+  const { data, isLoading } = useQuery<any>({ queryKey: ["login-log", page], queryFn: () => get(`/api/admin/login-log?page=${page}&pageSize=50`) });
+  if (isLoading) return <Spinner />;
+  return (
+    <div>
+      <div className="overflow-x-auto rounded-2xl border bg-white"><table className="table-dp"><thead><tr><th>Data</th><th>Accesso</th><th>Utente</th><th>Esito</th><th>IP</th></tr></thead>
+        <tbody>{data.rows.map((l: any) => <tr key={l.id}><td className="whitespace-nowrap">{fmtDateTime(l.createdAt)}</td><td>{l.login}</td><td>{l.name || "—"}{l.role && <span className="text-xs text-slate-500"> ({ROLE_LABELS[l.role]})</span>}</td>
+          <td>{l.success ? <span className="text-green-700">riuscito</span> : <span className="text-red-600">fallito{l.reason ? ` (${l.reason.replace("_", " ")})` : ""}</span>}</td><td className="text-xs">{l.ip}</td></tr>)}</tbody></table></div>
+      <Pager page={page} pageSize={50} onPage={setPage} />
+    </div>
+  );
+}
+
+/** Compensi collaboratori: liquidazione settimanale (pagamento del sabato), rettifiche, stato e storico, esportazioni. */
+export function Settlements() {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [day, setDay] = useState(todayISO());
+  const [adj, setAdj] = useState<Record<number, { cents: number | null; note: string }>>({});
+  const [from, setFrom] = useState(addDaysISO(todayISO(), -90));
+  const [to, setTo] = useState(todayISO());
+  const { data, isLoading } = useQuery<any>({ queryKey: ["settle-preview", day], queryFn: () => get(`/api/admin/settlements/preview?day=${day}`) });
+  const { data: hist } = useQuery<any[]>({ queryKey: ["settlements", from, to], queryFn: () => get(`/api/admin/settlements?from=${from}&to=${to}`) });
+  const refresh = () => { qc.invalidateQueries({ queryKey: ["settle-preview"] }); qc.invalidateQueries({ queryKey: ["settlements"] }); qc.invalidateQueries({ queryKey: ["worklogs"] }); };
+  const create = async (o: any) => {
+    const a = adj[o.operatorId] || { cents: 0, note: "" };
+    try { await post("/api/admin/settlements", { operatorId: o.operatorId, day, adjustmentsCents: a.cents || 0, adjustmentNote: a.note || null }); toast(`Liquidazione di ${o.name} creata`); refresh(); } catch (e: any) { toast(e.message, "err"); }
+  };
+  const setStatus = async (st: any, status: string) => {
+    const paidMethod = status === "pagato" ? prompt("Metodo di pagamento (es. contanti, bonifico):", "contanti") : null;
+    if (status === "pagato" && paidMethod === null) return;
+    try { await patch(`/api/admin/settlements/${st.id}`, { status, paidMethod }); toast(status === "pagato" ? "Segnata come pagata" : "Pagamento annullato"); refresh(); } catch (e: any) { toast(e.message, "err"); }
+  };
+  return (
+    <div>
+      <PageTitle title="Compensi collaboratori" subtitle="Liquidazione settimanale con pagamento il sabato. Calcolo gestionale: non sostituisce cedolini o adempimenti fiscali." />
+      <div className="mb-4 flex flex-wrap items-end gap-2">
+        <Field label="Settimana che contiene il giorno"><input type="date" className="input" value={day} onChange={(e) => e.target.value && setDay(e.target.value)} /></Field>
+        <button className="btn-outline btn-sm" onClick={() => setDay(addDaysISO(day, -7))}>‹ Settimana prec.</button>
+        <button className="btn-outline btn-sm" onClick={() => setDay(addDaysISO(day, 7))}>Settimana succ. ›</button>
+      </div>
+      {isLoading ? <Spinner /> : (
+        <>
+          <p className="mb-3 font-bold text-brand-navy">Settimana dal {fmtDay(data.week.start)} al {fmtDay(data.week.end)} (pagamento: {fmtDay(data.week.end)})</p>
+          {!data.operators.length ? <Empty>Nessuna ora registrata in questa settimana.</Empty> : (
+            <div className="grid gap-4 lg:grid-cols-2">
+              {data.operators.map((o: any) => (
+                <div key={o.operatorId} className="card">
+                  <div className="flex items-start justify-between"><div><h3 className="text-lg font-bold">{o.name}</h3><p className="text-sm text-slate-600">{mins(o.minutes)} · maturato {euro(o.grossCents)}</p></div>
+                    {o.settlement && <StatusBadge status={o.settlement.status} labels={{ da_pagare: "Da pagare", pagato: "Pagato" }} colors={{ da_pagare: "#F59E0B", pagato: "#16A34A" }} />}</div>
+                  <table className="mt-2 w-full text-xs"><tbody>{o.days.map((d: any) => <tr key={d.id} className="border-t border-slate-100"><td className="py-1">{fmtDay(d.workDate)}</td><td>{d.clockIn}–{d.clockOut || "?"}</td><td>pausa {d.breakMin}′</td><td>{mins(d.effectiveMin)}</td><td className="text-right">{euro(d.amountCents)}</td></tr>)}</tbody></table>
+                  {o.settlement ? (
+                    <div className="mt-3 rounded-xl bg-slate-50 p-3 text-sm">
+                      <p>Maturato {euro(o.settlement.grossCents)}{o.settlement.adjustmentsCents ? <> · rettifiche {euro(o.settlement.adjustmentsCents)} ({o.settlement.adjustmentNote})</> : null}</p>
+                      <p className="text-lg font-extrabold text-brand-navy">Da pagare {euro(o.settlement.totalCents)}</p>
+                      {o.settlement.status === "pagato" ? <p className="text-green-700">Pagato il {fmtDay(o.settlement.paidAt)} {o.settlement.paidMethod && `(${o.settlement.paidMethod})`}</p> : null}
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {o.settlement.status === "da_pagare" ? <><button className="btn-primary btn-sm" onClick={() => setStatus(o.settlement, "pagato")}>Segna come pagato</button>
+                          <button className="btn-ghost btn-sm" onClick={async () => { if (confirm("Annullare la liquidazione? Le giornate torneranno modificabili.")) { await del(`/api/admin/settlements/${o.settlement.id}`); refresh(); } }}>Annulla liquidazione</button></>
+                          : <button className="btn-ghost btn-sm" onClick={() => setStatus(o.settlement, "da_pagare")}>Annulla pagamento</button>}
+                        <a className="btn-outline btn-sm" href={`/api/admin/settlements?from=${data.week.start}&to=${data.week.end}&id=${o.settlement.id}&format=pdf`}><Download size={14} /> PDF</a>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="mt-3 grid gap-2 sm:grid-cols-[140px_1fr_auto] sm:items-end">
+                      <Field label="Rettifica (+/-)"><MoneyInput value={adj[o.operatorId]?.cents ?? null} onChange={(v) => setAdj({ ...adj, [o.operatorId]: { note: adj[o.operatorId]?.note || "", cents: v } })} /></Field>
+                      <Field label="Motivo rettifica"><input className="input" value={adj[o.operatorId]?.note || ""} onChange={(e) => setAdj({ ...adj, [o.operatorId]: { cents: adj[o.operatorId]?.cents ?? null, note: e.target.value } })} /></Field>
+                      <button className="btn-navy btn-sm" disabled={o.open > 0} title={o.open ? "Ci sono giornate senza uscita" : ""} onClick={() => create(o)}>Crea liquidazione</button>
+                    </div>
+                  )}
+                  <p className="mt-1 text-[11px] text-slate-400">Per una rettifica negativa inserisci l'importo e poi correggi il segno nel campo (es. −5,00 → scrivi "-5").</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+      <h2 className="mb-3 mt-8 text-xl font-bold">Storico liquidazioni</h2>
+      <div className="mb-3 flex flex-wrap items-end gap-2">
+        <input type="date" className="input w-40" value={from} onChange={(e) => setFrom(e.target.value)} aria-label="Dal" />
+        <input type="date" className="input w-40" value={to} onChange={(e) => setTo(e.target.value)} aria-label="Al" />
+        <a className="btn-outline btn-sm" href={`/api/admin/settlements?from=${from}&to=${to}&format=xlsx`}><Download size={14} /> Excel</a>
+        <a className="btn-outline btn-sm" href={`/api/admin/settlements?from=${from}&to=${to}&format=pdf`}><Download size={14} /> PDF</a>
+      </div>
+      {!hist?.length ? <Empty>Nessuna liquidazione nel periodo.</Empty> : (
+        <div className="overflow-x-auto rounded-2xl border bg-white"><table className="table-dp"><thead><tr><th>Operatore</th><th>Settimana</th><th>Ore</th><th>Maturato</th><th>Rettifiche</th><th>Da pagare</th><th>Stato</th></tr></thead>
+          <tbody>{hist.map((x) => <tr key={x.id}><td>{x.operatorName}</td><td>{fmtDay(x.weekStart)} → {fmtDay(x.weekEnd)}</td><td>{x.hours}</td><td>{euro(x.grossCents)}</td><td>{euro(x.adjustmentsCents)}</td><td className="font-bold">{euro(x.totalCents)}</td><td>{x.stato}</td></tr>)}</tbody></table></div>
+      )}
     </div>
   );
 }

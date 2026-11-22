@@ -4,6 +4,8 @@ import { Plus, Pencil, Trash2 } from "lucide-react";
 import { PageTitle, Spinner, Modal, Field, Check, MoneyInput, ErrorBox, Tabs, useToast } from "@/components/ui";
 import ResourceManager from "@/components/ResourceManager";
 import { get, post, patch, del } from "@/lib/api";
+import { useMe, can } from "@/lib/auth";
+import { SettingsForm } from "./Content";
 import { fmtDay } from "@/lib/format";
 import { euro, SIZES, SIZE_LABELS, WEEKDAYS } from "@shared/constants";
 import { useAdminOperators } from "./AppointmentDetail";
@@ -86,6 +88,7 @@ export function Services() {
               <Check checked={edit.active} onChange={(v) => setEdit({ ...edit, active: v })} label="Attivo" />
               <Check checked={edit.visible} onChange={(v) => setEdit({ ...edit, visible: v })} label="Visibile sul sito" />
               <Check checked={edit.bookable} onChange={(v) => setEdit({ ...edit, bookable: v })} label="Richiedibile on line" />
+              <Check checked={edit.earnsPoints !== false} onChange={(v) => setEdit({ ...edit, earnsPoints: v })} label="Genera punti Fidelity" />
             </div>
             <div>
               <p className="label">Varianti per taglia (vuoto = usa prezzo/durata base)</p>
@@ -113,7 +116,6 @@ export function Services() {
 export function Operators() {
   const qc = useQueryClient();
   const toast = useToast();
-  const [tab, setTab] = useState("operatori");
   const { data: ops, isLoading } = useAdminOperators();
   const { data: services } = useQuery<any[]>({ queryKey: ["admin-services"], queryFn: () => get("/api/admin/services") });
   const { data: staff } = useQuery<any>({ queryKey: ["staff-users"], queryFn: () => get("/api/admin/users").catch(() => ({ rows: [] })) });
@@ -133,27 +135,10 @@ export function Operators() {
 
   return (
     <div>
-      <PageTitle title="Operatori e turni" subtitle="Competenze, orari, pause, ferie e chiusure">
-        {tab === "operatori" && <button className="btn-primary btn-sm" onClick={() => open({})}><Plus size={14} /> Nuovo operatore</button>}
+      <PageTitle title="Operatori" subtitle="Collaboratori, competenze (servizi abilitati), compenso orario e turni settimanali">
+        <button className="btn-primary btn-sm" onClick={() => open({})}><Plus size={14} /> Nuovo operatore</button>
       </PageTitle>
-      <Tabs value={tab} onChange={setTab} items={[{ value: "operatori", label: "Operatori" }, { value: "assenze", label: "Ferie, assenze e chiusure" }, { value: "risorse", label: "Postazioni" }]} />
-      {tab === "assenze" ? (
-        <ResourceManager title="Ferie, assenze e chiusure" subtitle="Senza operatore = chiusura del salone per tutti. Senza orari = giornata intera." endpoint="/api/admin/absences"
-          defaults={{ kind: "ferie" }}
-          fields={[
-            { name: "operatorId", label: "Operatore", type: "select", numeric: true, options: (ops || []).map((o) => ({ value: o.id, label: o.name })), hint: "Vuoto = chiusura salone" },
-            { name: "kind", label: "Tipo", type: "select", required: true, options: [{ value: "ferie", label: "Ferie" }, { value: "assenza", label: "Assenza" }, { value: "malattia", label: "Malattia" }, { value: "chiusura", label: "Chiusura" }, { value: "altro", label: "Altro" }] },
-            { name: "startDate", label: "Dal", type: "date", required: true }, { name: "endDate", label: "Al", type: "date", required: true },
-            { name: "startTime", label: "Dalle ore (facoltativo)", type: "time" }, { name: "endTime", label: "Alle ore (facoltativo)", type: "time" },
-            { name: "note", label: "Note", nullable: true, full: true },
-          ]}
-          columns={[{ key: "operatorId", label: "Chi", render: (r) => ops?.find((o) => o.id === r.operatorId)?.name || <b>Tutto il salone</b> }, { key: "kind", label: "Tipo" }, { key: "startDate", label: "Periodo", render: (r) => `${fmtDay(r.startDate)} → ${fmtDay(r.endDate)}${r.startTime ? ` (${r.startTime}–${r.endTime})` : ""}` }, { key: "note", label: "Note" }]}
-        />
-      ) : tab === "risorse" ? (
-        <ResourceManager title="Postazioni e risorse" endpoint="/api/admin/resources" defaults={{ kind: "postazione", active: true }}
-          fields={[{ name: "name", label: "Nome", required: true }, { name: "kind", label: "Tipo" }, { name: "active", label: "Attiva", type: "checkbox" }]}
-          columns={[{ key: "name", label: "Nome" }, { key: "kind", label: "Tipo" }, { key: "active", label: "Attiva", render: (r) => (r.active ? "✓" : "—") }]} />
-      ) : isLoading ? <Spinner /> : (
+      {isLoading ? <Spinner /> : (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {ops?.map((o) => (
             <div key={o.id} className={`card ${!o.active ? "opacity-60" : ""}`}>
@@ -205,6 +190,92 @@ export function Operators() {
           </form>
         )}
       </Modal>
+    </div>
+  );
+}
+
+/** Turni e disponibilità: quadro turni, ferie/assenze/chiusure, postazioni e griglia oraria. */
+export function Availability() {
+  const [tab, setTab] = useState("turni");
+  const { data: ops } = useAdminOperators();
+  return (
+    <div>
+      <PageTitle title="Turni e disponibilità" subtitle="Le richieste on line rispettano turni, pause, ferie, chiusure, griglia e intervalli" />
+      <Tabs value={tab} onChange={setTab} items={[{ value: "turni", label: "Quadro turni" }, { value: "assenze", label: "Ferie, assenze e chiusure" }, { value: "griglia", label: "Griglia e intervalli" }, { value: "risorse", label: "Postazioni" }]} />
+      {tab === "turni" && (
+        <div className="overflow-x-auto rounded-2xl border bg-white">
+          <table className="table-dp"><thead><tr><th>Operatore</th>{[1, 2, 3, 4, 5, 6, 0].map((d) => <th key={d}>{WEEKDAYS[d]}</th>)}</tr></thead>
+            <tbody>{ops?.filter((o) => o.active).map((o) => (
+              <tr key={o.id}><td className="font-bold"><span className="mr-1 inline-block h-2.5 w-2.5 rounded-full" style={{ background: o.color }} />{o.name}</td>
+                {[1, 2, 3, 4, 5, 6, 0].map((d) => <td key={d} className="text-xs">{o.shifts.filter((s: any) => s.weekday === d).map((s: any) => <div key={s.id}>{s.startTime}–{s.endTime}{s.breakStart && <span className="text-slate-400"> (pausa {s.breakStart}–{s.breakEnd})</span>}</div>)}</td>)}</tr>
+            ))}</tbody></table>
+          <p className="p-3 text-xs text-slate-500">Per modificare turni, pause e servizi abilitati apri la scheda dell'operatore in <a href="/admin/operatori" className="underline">Operatori</a>.</p>
+        </div>
+      )}
+      {tab === "assenze" && (
+        <ResourceManager title="Ferie, assenze e chiusure" subtitle="Senza operatore = chiusura del salone per tutti. Senza orari = giornata intera." endpoint="/api/admin/absences"
+          defaults={{ kind: "ferie" }}
+          fields={[
+            { name: "operatorId", label: "Operatore", type: "select", numeric: true, options: (ops || []).map((o) => ({ value: o.id, label: o.name })), hint: "Vuoto = chiusura salone" },
+            { name: "kind", label: "Tipo", type: "select", required: true, options: [{ value: "ferie", label: "Ferie" }, { value: "assenza", label: "Assenza" }, { value: "malattia", label: "Malattia" }, { value: "chiusura", label: "Chiusura" }, { value: "altro", label: "Altro" }] },
+            { name: "startDate", label: "Dal", type: "date", required: true }, { name: "endDate", label: "Al", type: "date", required: true },
+            { name: "startTime", label: "Dalle ore (facoltativo)", type: "time" }, { name: "endTime", label: "Alle ore (facoltativo)", type: "time" },
+            { name: "note", label: "Note", nullable: true, full: true },
+          ]}
+          columns={[{ key: "operatorId", label: "Chi", render: (r) => ops?.find((o) => o.id === r.operatorId)?.name || <b>Tutto il salone</b> }, { key: "kind", label: "Tipo" }, { key: "startDate", label: "Periodo", render: (r) => `${fmtDay(r.startDate)} → ${fmtDay(r.endDate)}${r.startTime ? ` (${r.startTime}–${r.endTime})` : ""}` }, { key: "note", label: "Note" }]}
+        />
+      )}
+      {tab === "griglia" && <SettingsForm section="booking" title="Griglia oraria e regole delle richieste" fields={[
+        { key: "slotMinutes", label: "Griglia oraria (minuti)", type: "number", hint: "15, 30, 45, 60 o qualsiasi intervallo personalizzato" },
+        { key: "bufferMin", label: "Intervallo tra appuntamenti (minuti)", type: "number" },
+        { key: "minNoticeHours", label: "Preavviso minimo richieste on line (ore)", type: "number" },
+        { key: "maxDaysAhead", label: "Giorni richiedibili in anticipo", type: "number" },
+        { key: "requestBlocksSlot", label: "Le richieste in attesa occupano lo slot (evita doppie richieste)", type: "checkbox" },
+        { key: "allowAnyOperator", label: "Consenti 'Nessuna preferenza' sull'operatore", type: "checkbox" },
+      ]} />}
+      {tab === "risorse" && (
+
+        <ResourceManager title="Postazioni e risorse" endpoint="/api/admin/resources" defaults={{ kind: "postazione", active: true }}
+          fields={[{ name: "name", label: "Nome", required: true }, { name: "kind", label: "Tipo" }, { name: "active", label: "Attiva", type: "checkbox" }]}
+          columns={[{ key: "name", label: "Nome" }, { key: "kind", label: "Tipo" }, { key: "active", label: "Attiva", render: (r) => (r.active ? "✓" : "—") }]} />
+      )}
+    </div>
+  );
+}
+
+/** Listino: prezzi e durate per taglia di tutti i servizi, modificabili in un'unica tabella. */
+export function PriceList() {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const { data } = useQuery<any[]>({ queryKey: ["admin-services"], queryFn: () => get("/api/admin/services") });
+  const { data: me } = useMe();
+  const editable = can(me ?? null, "impostazioni");
+  const [rows, setRows] = useState<Record<number, any>>({});
+  const row = (s: any) => rows[s.id] ?? { priceCents: s.priceCents, durationMin: s.durationMin, variants: SIZES.map((size) => ({ size, priceCents: s.variants.find((v: any) => v.size === size)?.priceCents ?? null, durationMin: s.variants.find((v: any) => v.size === size)?.durationMin ?? null })) };
+  const set = (s: any, patch: any) => setRows({ ...rows, [s.id]: { ...row(s), ...patch } });
+  const save = async (s: any) => {
+    const r = row(s);
+    try { await patch(`/api/admin/services/${s.id}`, { priceCents: r.priceCents, durationMin: Number(r.durationMin), variants: r.variants.map((v: any) => ({ ...v, durationMin: v.durationMin ? Number(v.durationMin) : null })) });
+      const n = { ...rows }; delete n[s.id]; setRows(n); toast(`${s.name}: listino aggiornato`); qc.invalidateQueries({ queryKey: ["admin-services"] }); }
+    catch (e: any) { toast(e.message, "err"); }
+  };
+  return (
+    <div>
+      <PageTitle title="Listino" subtitle="Prezzo e durata base, varianti per taglia (vuoto = usa la base). Il prezzo definitivo è sempre confermato dal salone." />
+      <div className="overflow-x-auto rounded-2xl border bg-white">
+        <table className="table-dp"><thead><tr><th>Servizio</th><th>Base</th>{SIZES.map((z) => <th key={z}>{SIZE_LABELS[z]}</th>)}<th /></tr></thead>
+          <tbody>{data?.map((s) => { const r = row(s); return (
+            <tr key={s.id}>
+              <td className="font-bold">{s.name}<span className="block text-xs font-normal text-slate-500">{s.category}</span></td>
+              <td className="min-w-[120px]"><MoneyInput value={r.priceCents} disabled={!editable} onChange={(v) => set(s, { priceCents: v })} /><input type="number" disabled={!editable} className="input mt-1" value={r.durationMin} onChange={(e) => set(s, { durationMin: e.target.value })} aria-label="Durata base" /></td>
+              {r.variants.map((v: any, i: number) => (
+                <td key={v.size} className="min-w-[110px]"><MoneyInput value={v.priceCents} disabled={!editable} onChange={(c) => { const vs = [...r.variants]; vs[i] = { ...v, priceCents: c }; set(s, { variants: vs }); }} />
+                  <input type="number" disabled={!editable} className="input mt-1" placeholder="min" value={v.durationMin ?? ""} onChange={(e) => { const vs = [...r.variants]; vs[i] = { ...v, durationMin: e.target.value || null }; set(s, { variants: vs }); }} /></td>
+              ))}
+              <td>{editable && rows[s.id] && <button className="btn-primary btn-sm" onClick={() => save(s)}>Salva</button>}</td>
+            </tr>); })}</tbody></table>
+      </div>
+      <p className="mt-2 text-xs text-slate-500">Prima riga: prezzo; seconda riga: durata in minuti. I supplementi (nodi, muta, comportamento…) si gestiscono in Servizi → Supplementi.</p>
     </div>
   );
 }

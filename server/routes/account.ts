@@ -8,7 +8,13 @@ import {
 } from "../../shared/schema";
 import { requireAuth, publicUser } from "../auth";
 import { createRequest, applyAction, paidTotal, logEvent } from "../services/appointments";
-import { ensureCard } from "../services/loyalty";
+import { ensureCard, upcomingExpiries, redeem } from "../services/loyalty";
+import { recordConsent, currentPolicyVersion } from "../services/consents";
+import { priceItems, promoDiscount } from "../services/shop";
+import { sendTemplate } from "../services/email";
+import { deliveryQuote } from "../logic";
+import { boardingEvents } from "../../shared/schema";
+import { euro } from "../../shared/constants";
 import { getSettings } from "../services/settings";
 import { createCheckout, stripeEnabled } from "../services/payments";
 import { notifyStaff } from "../services/notify";
@@ -25,7 +31,7 @@ const profileSchema = z.object({
   phone: z.string().trim().min(6).max(40),
   address: zOptStr(), city: zOptStr(120), province: zOptStr(10), cap: zOptStr(10), country: zOptStr(80),
   birthDate: zOptDay, notes: zOptStr(2000),
-  commEmail: z.boolean(), commPush: z.boolean(), commWhatsapp: z.boolean(), consentMarketing: z.boolean(),
+  commEmail: z.boolean(), commPush: z.boolean(), commWhatsapp: z.boolean(), commRecall: z.boolean(), consentMarketing: z.boolean(),
 }).partial();
 
 r.get("/profile", (req, res) => res.json(publicUser(req.user!)));
@@ -33,6 +39,11 @@ r.patch("/profile", h(async (req, res) => {
   const d = profileSchema.parse(req.body);
   const extra = d.consentMarketing !== undefined && d.consentMarketing !== req.user!.consentMarketing ? { consentDate: new Date() } : {};
   const [u] = await db.update(users).set({ ...d, ...extra, updatedAt: new Date() }).where(eq(users.id, req.user!.id)).returning();
+  // storico delle autorizzazioni: concessione o revoca
+  if (d.consentMarketing !== undefined && d.consentMarketing !== req.user!.consentMarketing) {
+    await recordConsent(null, { userId: u.id, kind: "marketing", granted: d.consentMarketing, source: "area_personale", req, policyVersion: await currentPolicyVersion("marketing") });
+  }
+  if (d.commRecall !== undefined && d.commRecall !== req.user!.commRecall) await recordConsent(null, { userId: u.id, kind: "richiami", granted: d.commRecall, source: "area_personale", req });
   await audit(req, "profile_update", "user", u.id, { fields: Object.keys(d) });
   res.json(publicUser(u));
 }));
@@ -147,8 +158,8 @@ r.post("/appointments", h(async (req, res) => {
 }));
 
 r.post("/appointments/:id/action", h(async (req, res) => {
-  const { action } = z.object({ action: z.enum(["accetta_proposta", "rifiuta_proposta", "annulla"]) }).parse(req.body);
-  res.json(await applyAction(id(req.params.id), { id: req.user!.id, role: "customer" }, { action }));
+  const { action, reason } = z.object({ action: z.enum(["accetta_proposta", "rifiuta_proposta", "annulla"]), reason: zOptStr(255) }).parse(req.body);
+  res.json(await applyAction(id(req.params.id), { id: req.user!.id, role: "customer" }, { action, reason }));
 }));
 
 /** Richiesta di modifica/cancellazione per appuntamenti già confermati (gestita dal salone). */
@@ -209,11 +220,14 @@ r.get("/payments", h(async (req, res) => {
 // ---------- fidelity ----------
 r.get("/loyalty", h(async (req, res) => {
   const card = await ensureCard(req.user!.id);
-  const [tx, rewards] = await Promise.all([
-    db.select().from(loyaltyTransactions).where(eq(loyaltyTransactions.cardId, card.id)).orderBy(desc(loyaltyTransactions.createdAt)).limit(100),
+  const s = await getSettings();
+  const [tx, rewards, expiries] = await Promise.all([
+    db.select().from(loyaltyTransactions).where(eq(loyaltyTransactions.cardId, card.id)).orderBy(desc(loyaltyTransactions.id)).limit(100),
     db.select().from(loyaltyRewards).where(eq(loyaltyRewards.active, true)).orderBy(asc(loyaltyRewards.pointsCost)),
+    upcomingExpiries(card.id),
   ]);
-  res.json({ card, transactions: tx, rewards });
+  res.json({ card, transactions: tx.filter((t) => !(t.kind === "proroga" && t.points === 0) || true), rewards, expiries,
+    rules: { pointsPerEuro: s.loyalty.pointsPerEuro, pointValueCents: s.loyalty.pointValueCents, minRedeemPoints: s.loyalty.minRedeemPoints, expiryMode: s.loyalty.expiryMode, expiryFixedDate: s.loyalty.expiryFixedDate, expiryDays: s.loyalty.expiryDays } });
 }));
 
 // ---------- pensione casalinga ----------
@@ -224,17 +238,43 @@ r.get("/boarding", h(async (req, res) => {
 r.post("/boarding", h(async (req, res) => {
   const s = await getSettings();
   if (!s.site.boardingEnabled) throw new HttpError(400, "Le richieste di pensione non sono al momento attive");
-  const d = z.object({ dogId: z.number().int().positive(), startDate: zDay, endDate: zDay, customerNotes: zOptStr(2000) }).parse(req.body);
+  const d = z.object({ dogId: z.number().int().positive(), startDate: zDay, endDate: zDay, needs: zOptStr(2000), customerNotes: zOptStr(2000) }).parse(req.body);
   if (d.endDate < d.startDate || d.startDate < todayRome()) throw new HttpError(400, "Date non valide");
   const [dog] = await db.select().from(dogs).where(and(eq(dogs.id, d.dogId), eq(dogs.ownerId, req.user!.id)));
   if (!dog) throw new HttpError(404, "Cane non trovato");
   const [b] = await db.insert(boardingRequests).values({ ...d, customerId: req.user!.id }).returning();
+  await db.insert(boardingEvents).values({ boardingId: b.id, actorId: req.user!.id, action: "richiesta", message: d.customerNotes });
   await notifyStaff("pensione", { title: "Nuova richiesta pensione casalinga", body: `${dog.name}: dal ${d.startDate} al ${d.endDate}`, url: "/admin/pensione" });
   res.status(201).json(b);
 }));
+/** Risposta del cliente: accetta le nuove date proposte o invia le informazioni richieste. */
+r.post("/boarding/:id/reply", h(async (req, res) => {
+  const d = z.object({ action: z.enum(["accetta_date", "rifiuta_date", "rispondi"]), message: zOptStr(2000) }).parse(req.body);
+  const bid = id(req.params.id);
+  const [b0] = await db.select().from(boardingRequests).where(and(eq(boardingRequests.id, bid), eq(boardingRequests.customerId, req.user!.id)));
+  if (!b0) throw new HttpError(404, "Richiesta non trovata");
+  let patch: any = { updatedAt: new Date() };
+  if (d.action === "accetta_date") {
+    if (b0.status !== "proposta" || !b0.proposedStart || !b0.proposedEnd) throw new HttpError(400, "Nessuna proposta da accettare");
+    // torna al salone per la conferma definitiva: nessuna conferma automatica
+    patch = { ...patch, startDate: b0.proposedStart, endDate: b0.proposedEnd, proposedStart: null, proposedEnd: null, status: "richiesta" };
+  } else if (d.action === "rifiuta_date") {
+    if (b0.status !== "proposta") throw new HttpError(400, "Nessuna proposta da rifiutare");
+    patch = { ...patch, status: "annullata" };
+  } else {
+    if (!d.message) throw new HttpError(400, "Scrivi la risposta");
+    if (b0.status !== "info_richieste") throw new HttpError(400, "Il salone non ha richiesto informazioni");
+    patch = { ...patch, status: "richiesta", customerNotes: [b0.customerNotes, d.message].filter(Boolean).join("\n---\n") };
+  }
+  const [b] = await db.update(boardingRequests).set(patch).where(eq(boardingRequests.id, bid)).returning();
+  await db.insert(boardingEvents).values({ boardingId: bid, actorId: req.user!.id, action: "cliente_" + d.action, message: d.message });
+  await notifyStaff("pensione", { title: "Pensione: risposta del cliente", body: `${req.user!.firstName} ${req.user!.lastName}: ${d.action.replace("_", " ")}${d.message ? " – " + d.message : ""}`, url: "/admin/pensione" });
+  res.json(b);
+}));
+
 r.post("/boarding/:id/cancel", h(async (req, res) => {
   const [b] = await db.update(boardingRequests).set({ status: "annullata", updatedAt: new Date() })
-    .where(and(eq(boardingRequests.id, id(req.params.id)), eq(boardingRequests.customerId, req.user!.id), inArray(boardingRequests.status, ["richiesta", "confermata"]))).returning();
+    .where(and(eq(boardingRequests.id, id(req.params.id)), eq(boardingRequests.customerId, req.user!.id), inArray(boardingRequests.status, ["richiesta", "info_richieste", "proposta", "confermata"]))).returning();
   if (!b) throw new HttpError(400, "Richiesta non annullabile");
   await notifyStaff("pensione", { title: "Pensione annullata dal cliente", body: `Richiesta #${b.id}`, url: "/admin/pensione" });
   res.json(b);
@@ -247,50 +287,77 @@ r.get("/orders", h(async (req, res) => {
   res.json(os.map((o) => ({ ...o, items: items.filter((i) => i.orderId === o.id) })));
 }));
 
+/** Preventivo consegna per CAP (zone configurate dall'admin). */
+r.get("/delivery-quote", h(async (req, res) => {
+  const q = z.object({ cap: z.string().trim().min(4).max(10), subtotal: z.coerce.number().int().min(0) }).parse(req.query);
+  const s = await getSettings();
+  if (!s.shop.deliveryEnabled) return res.json(null);
+  res.json(deliveryQuote(s.shop.deliveryZones, q.cap, q.subtotal));
+}));
+
 r.post("/orders", h(async (req, res) => {
   const s = await getSettings();
   if (!s.site.shopEnabled) throw new HttpError(400, "Lo shop online non è ancora attivo");
   const d = z.object({
-    items: z.array(z.object({ productId: z.number().int().positive(), qty: z.number().int().min(1).max(50) })).min(1).max(50),
-    delivery: z.enum(["ritiro", "consegna"]).default("ritiro"), notes: zOptStr(1000), promoCode: zOptStr(40),
+    items: z.array(z.object({ productId: z.number().int().positive(), variantId: z.number().int().positive().nullable().optional(), qty: z.number().int().min(1).max(50) })).min(1).max(50),
+    delivery: z.enum(["ritiro", "consegna"]).default("ritiro"), notes: zOptStr(1000), promoCode: zOptStr(40), pointsToUse: z.number().int().min(0).default(0),
+    address: zOptStr(255), city: zOptStr(120), cap: zOptStr(10),
   }).parse(req.body);
-  if (d.delivery === "consegna" && s.shop.pickupOnly) throw new HttpError(400, "Al momento è disponibile solo il ritiro in negozio");
+  if (d.delivery === "ritiro" && !s.shop.pickupEnabled) throw new HttpError(400, "Il ritiro in negozio non è disponibile");
+  if (d.delivery === "consegna" && !s.shop.deliveryEnabled) throw new HttpError(400, "La consegna a domicilio non è disponibile");
+  if (d.delivery === "consegna" && (!d.address || !d.city || !d.cap)) throw new HttpError(400, "Indica indirizzo, comune e CAP per la consegna");
   const order = await db.transaction(async (tx) => {
-    const prods = await tx.select().from(products).where(inArray(products.id, d.items.map((i) => i.productId)));
-    let total = 0;
-    const lines = d.items.map((i) => {
-      const p = prods.find((x) => x.id === i.productId);
-      if (!p || !p.active || !p.visibleOnline) throw new HttpError(400, "Prodotto non disponibile");
-      if (p.stock < i.qty) throw new HttpError(409, `Disponibilità insufficiente per ${p.name}`);
-      const unit = p.salePriceCents ?? p.priceCents;
-      total += unit * i.qty;
-      return { productId: p.id, name: p.name, qty: i.qty, unitPriceCents: unit };
-    });
-    let discount = 0;
-    if (d.promoCode) {
-      const today = todayRome();
-      const [promo] = await tx.select().from(promotions).where(and(sql`upper(${promotions.code}) = upper(${d.promoCode})`, eq(promotions.active, true)));
-      if (!promo || (promo.startsAt && promo.startsAt > today) || (promo.endsAt && promo.endsAt < today) || promo.appliesTo === "servizi") throw new HttpError(400, "Codice promozionale non valido");
-      discount = promo.discountType === "percent" ? Math.round((total * promo.discountValue) / 100) : promo.discountType === "amount" ? Math.min(total, promo.discountValue) : 0;
+    const { lines, subtotal } = await priceItems(tx, d.items, { onlineOnly: true });
+    const discount = await promoDiscount(tx, d.promoCode, subtotal);
+    let delivery = 0, zone: string | null = null, eta: string | null = null;
+    if (d.delivery === "consegna") {
+      const q = deliveryQuote(s.shop.deliveryZones, d.cap!, subtotal - discount);
+      if (!q) throw new HttpError(400, "Il CAP indicato non è servito dalla consegna a domicilio");
+      delivery = q.costCents; zone = q.zone; eta = q.eta;
     }
-    const shipping = d.delivery === "consegna" && !(s.shop.freeShippingFromCents && total >= s.shop.freeShippingFromCents) ? s.shop.shippingCents : 0;
-    const [o] = await tx.insert(orders).values({ customerId: req.user!.id, totalCents: total - discount + shipping, discountCents: discount, promoCode: d.promoCode, delivery: d.delivery, notes: d.notes }).returning();
+    let pointsDiscount = 0;
+    if (d.pointsToUse > 0) {
+      if (!s.loyalty.pointValueCents) throw new HttpError(400, "L'utilizzo dei punti nello shop non è ancora attivo");
+      if (d.pointsToUse < (s.loyalty.minRedeemPoints || 0)) throw new HttpError(400, `Puoi usare almeno ${s.loyalty.minRedeemPoints} punti`);
+      pointsDiscount = Math.min(d.pointsToUse * s.loyalty.pointValueCents, subtotal - discount);
+    }
+    const total = subtotal - discount - pointsDiscount + delivery;
+    const [o] = await tx.insert(orders).values({
+      customerId: req.user!.id, channel: "online", subtotalCents: subtotal, discountCents: discount, totalCents: total, promoCode: d.promoCode, delivery: d.delivery,
+      deliveryCents: delivery, deliveryZone: zone, deliveryEta: eta, deliveryAddress: d.address, deliveryCity: d.city, deliveryCap: d.cap,
+      pointsUsed: pointsDiscount ? d.pointsToUse : 0, pointsDiscountCents: pointsDiscount, notes: d.notes,
+    }).returning();
     await tx.insert(orderItems).values(lines.map((l) => ({ ...l, orderId: o.id })));
+    if (pointsDiscount) {
+      const card = await ensureCard(req.user!.id, tx);
+      await redeem(card.id, d.pointsToUse, `Credito punti – ordine #${o.id}`, { orderId: o.id, valueCents: pointsDiscount }, tx);
+    }
     return o;
   });
-  await notifyStaff("shop", { title: "Nuovo ordine shop", body: `Ordine #${order.id} – ${(order.totalCents / 100).toFixed(2)} €`, url: "/admin/ordini" });
+  await notifyStaff("shop", { title: "Nuovo ordine shop", body: `Ordine #${order.id} – ${euro(order.totalCents)}`, url: "/admin/ordini" });
+  await sendTemplate("ordine_confermato", req.user!.email, {
+    nome: req.user!.firstName, ordine: order.id, importo: euro(order.totalCents),
+    consegna: order.delivery === "ritiro" ? s.shop.pickupInfo : `Consegna a ${order.deliveryAddress}, ${order.deliveryCap} ${order.deliveryCity}${order.deliveryEta ? ` – tempi indicativi: ${order.deliveryEta}` : ""}.`,
+  }, { userId: req.user!.id });
   let url: string | null = null;
-  if (stripeEnabled() && s.payments.onlineEnabled) {
+  if (stripeEnabled() && s.payments.onlineEnabled && order.totalCents > 0) {
     const base = process.env.PUBLIC_URL || `${req.protocol}://${req.get("host")}`;
     const co = await createCheckout({
       amountCents: order.totalCents, email: req.user!.email, description: `Dog's Planet – ordine #${order.id}`,
       successUrl: `${base}/account/ordini?pagamento=ok`, cancelUrl: `${base}/account/ordini?pagamento=annullato`,
       metadata: { orderId: String(order.id), customerId: String(req.user!.id), kind: "totale" },
     });
-    await db.insert(payments).values({ orderId: order.id, customerId: req.user!.id, kind: "totale", method: "online", amountCents: order.totalCents, status: "in_attesa", provider: "stripe", providerRef: co.id, checkoutUrl: co.url });
+    await db.insert(payments).values({ orderId: order.id, customerId: req.user!.id, kind: "totale", method: "online", amountCents: order.totalCents, status: "in_attesa", provider: "stripe", providerRef: co.id, checkoutUrl: co.url, reason: `Ordine shop #${order.id}` });
     url = co.url;
   }
   res.status(201).json({ order, paymentUrl: url });
+}));
+
+/** Disattiva le notifiche push di tutti i dispositivi dell'utente. */
+r.post("/push/disable", h(async (req, res) => {
+  await db.delete(pushSubscriptions).where(eq(pushSubscriptions.userId, req.user!.id));
+  await db.update(users).set({ commPush: false }).where(eq(users.id, req.user!.id));
+  res.json({ ok: true });
 }));
 
 // ---------- notifiche ----------

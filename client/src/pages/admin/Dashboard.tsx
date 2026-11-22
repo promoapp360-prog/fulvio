@@ -14,15 +14,19 @@ export default function Dashboard() {
   if (isLoading) return <Spinner />;
   const c = data?.counts || {};
   const tiles = [
-    { label: "Richieste da gestire", value: c.pending, href: "/admin/richieste", icon: Inbox, perm: "richieste", hot: c.pending > 0 },
+    { label: "Appuntamenti di oggi", value: c.today_apps, href: "/admin/agenda", icon: CalendarDays, perm: "agenda_view" },
+    { label: "Richieste da confermare", value: c.pending, href: "/admin/richieste", icon: Inbox, perm: "richieste", hot: c.pending > 0 },
     { label: "Modifiche richieste", value: c.changes, href: "/admin/richieste", icon: Inbox, perm: "richieste", hot: c.changes > 0 },
     { label: "In attesa di pagamento", value: c.awaiting_payment, href: "/admin/richieste", icon: Wallet, perm: "richieste" },
-    { label: "Incassi di oggi", value: euro(c.today_cents), href: "/admin/pagamenti", icon: Wallet, perm: "pagamenti" },
-    { label: "Self-service oggi", value: euro(c.today_selfservice), href: "/admin/self-service", icon: Droplets, perm: "selfservice" },
+    { label: "Annullati / assenze (mese)", value: `${c.month_cancelled ?? 0} / ${c.month_noshow ?? 0}`, href: "/admin/richieste", icon: Inbox, perm: "richieste" },
+    { label: "Incassi di oggi", value: euro(c.today_cents), href: "/admin/pagamenti", icon: Wallet, perm: "incassi" },
+    { label: "Incassi del mese", value: euro(c.month_cents), href: "/admin/statistiche", icon: Wallet, perm: "incassi" },
+    { label: "Self-service oggi", value: euro(c.today_selfservice), href: "/admin/self-service", icon: Droplets, perm: "incassi" },
     { label: "Richieste pensione", value: c.boarding, href: "/admin/pensione", icon: Home, perm: "pensione", hot: c.boarding > 0 },
     { label: "Ordini da evadere", value: c.orders, href: "/admin/ordini", icon: ShoppingCart, perm: "shop" },
     { label: "Prodotti sotto scorta", value: c.low_stock, href: "/admin/magazzino", icon: Boxes, perm: "magazzino", hot: c.low_stock > 0 },
     { label: "Clienti", value: c.customers, href: "/admin/clienti", icon: Users, perm: "clienti" },
+    { label: "Email non consegnate", value: c.failed_emails, href: "/admin/comunicazioni", icon: Inbox, perm: "marketing", hot: c.failed_emails > 0 },
   ].filter((t) => can(me ?? null, t.perm));
   return (
     <div>

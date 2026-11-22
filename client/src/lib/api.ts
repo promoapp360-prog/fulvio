@@ -5,13 +5,16 @@ export class ApiError extends Error {
 export async function api<T = any>(path: string, opts: { method?: string; body?: unknown; form?: FormData } = {}): Promise<T> {
   const res = await fetch(path.startsWith("/") ? path : `/api/${path}`, {
     method: opts.method || (opts.body || opts.form ? "POST" : "GET"),
-    headers: opts.form ? undefined : opts.body !== undefined ? { "Content-Type": "application/json" } : undefined,
+    headers: { "X-Requested-With": "fetch", ...(opts.form ? {} : opts.body !== undefined ? { "Content-Type": "application/json" } : {}) },
     body: opts.form ?? (opts.body !== undefined ? JSON.stringify(opts.body) : undefined),
     credentials: "same-origin",
   });
   const text = await res.text();
   const data = text ? (() => { try { return JSON.parse(text); } catch { return text; } })() : null;
-  if (!res.ok) throw new ApiError(res.status, (data && data.error) || "Errore di rete");
+  if (!res.ok) {
+    if (data && data.code === "MUST_CHANGE_PASSWORD" && !window.location.pathname.startsWith("/cambia-password")) window.location.href = "/cambia-password";
+    throw new ApiError(res.status, (data && data.error) || "Errore di rete");
+  }
   return data as T;
 }
 

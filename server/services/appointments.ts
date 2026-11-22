@@ -6,6 +6,8 @@ import { getSettings } from "./settings";
 import { notifyUser, notifyStaff } from "./notify";
 import { awardForAmount } from "./loyalty";
 import { fmtRome } from "../time";
+import { withinDeadline } from "../logic";
+import { euro } from "../../shared/constants";
 import { STATUS_LABELS } from "../../shared/constants";
 import { HttpError } from "../util";
 
@@ -46,6 +48,11 @@ export async function createRequest(customerId: number, input: { dogId: number; 
         return a;
       });
       const [op] = await db.select().from(operators).where(eq(operators.id, opId));
+      const [cust] = await db.select().from(users).where(eq(users.id, customerId));
+      if (cust) await notifyUser(cust, {
+        title: "Richiesta inviata", body: `${qt.service.name} per ${dog.name} il ${fmtRome(app.startAt)}: attendi la conferma di Dog's Planet.`,
+        url: "/account/appuntamenti", template: "richiesta_ricevuta", vars: { cane: dog.name, servizio: qt.service.name, data: fmtRome(app.startAt) },
+      });
       await notifyStaff("richieste", {
         title: "Nuova richiesta di prenotazione",
         body: `${dog.name} – ${qt.service.name} con ${op?.name ?? "operatore"} il ${fmtRome(app.startAt)}`,
@@ -83,6 +90,7 @@ type ActionInput = {
   reason?: string | null;
   startAt?: Date; operatorId?: number | null; durationMin?: number; finalPriceCents?: number | null;
   paymentMode?: "nessuno" | "acconto" | "saldo" | "negozio"; depositCents?: number | null; force?: boolean;
+  treatmentNotes?: string | null;
 };
 
 const ALLOWED: Record<ActionInput["action"], AppointmentStatus[]> = {
@@ -106,11 +114,16 @@ export async function applyAction(appointmentId: number, actor: { id: number; ro
   const isCustomer = actor.role === "customer";
   if (isCustomer && !["accetta_proposta", "rifiuta_proposta", "annulla"].includes(input.action)) throw new HttpError(403, "Permesso negato");
   if (isCustomer && a.customerId !== actor.id) throw new HttpError(404, "Appuntamento non trovato");
-  if (isCustomer && input.action === "annulla" && !["richiesta", "in_valutazione"].includes(a.status)) {
-    throw new HttpError(400, "L'appuntamento è già confermato: invia una richiesta di cancellazione");
+  const settings = await getSettings();
+  let lateCancel = false;
+  if (input.action === "annulla" && !["richiesta", "in_valutazione"].includes(a.status)) {
+    lateCancel = !withinDeadline(a.startAt, settings.cancellation.cancelHours);
+    if (isCustomer && lateCancel) throw new HttpError(400, `Il termine per annullare on line è di ${settings.cancellation.cancelHours} ore prima: invia una richiesta al salone`);
   }
+  if (input.action === "annulla" && !isCustomer && !input.reason) throw new HttpError(400, "Indica il motivo dell'annullamento");
   if (input.force && actor.role !== "admin") throw new HttpError(403, "Solo l'amministratore può forzare sovrapposizioni o orari fuori turno");
 
+  let earnedPoints = 0;
   const updated = await db.transaction(async (tx) => {
     const patch: Partial<Appointment> = { updatedAt: new Date() };
     let to: AppointmentStatus = a.status;
@@ -171,39 +184,47 @@ export async function applyAction(appointmentId: number, actor: { id: number; ro
       case "completa": {
         to = "completata";
         if (input.finalPriceCents !== undefined) patch.finalPriceCents = input.finalPriceCents;
+        if (input.treatmentNotes !== undefined) patch.treatmentNotes = input.treatmentNotes;
         break;
       }
       case "assente": to = "assente"; break;
-      case "annulla": to = "annullata"; break;
+      case "annulla": {
+        to = "annullata";
+        Object.assign(patch, { cancelReason: input.reason || (isCustomer ? "Annullato dal cliente" : null), cancelledAt: new Date(), cancelledBy: isCustomer ? "cliente" : "salone", lateCancel });
+        break;
+      }
     }
     patch.status = to;
-    if (input.reason && !isCustomer) patch.adminNotes = [a.adminNotes, input.reason].filter(Boolean).join("\n");
+    if (input.reason && !isCustomer && input.action !== "annulla") patch.adminNotes = [a.adminNotes, input.reason].filter(Boolean).join("\n");
     const [u] = await tx.update(appointments).set(patch).where(eq(appointments.id, a.id)).returning();
     await logEvent(tx, a.id, actor.id, input.action, a.status, to, { reason: input.reason, force: !!input.force, ...(input.startAt ? { startAt: input.startAt } : {}) });
 
-    if (to === "completata") {
+    if (to === "completata" && before.service.earnsPoints) {
       const paid = await paidTotal(a.id, tx);
       const base = paid > 0 ? paid : (u.finalPriceCents ?? 0);
-      await awardForAmount(a.customerId, base, `Servizio: ${before.service.name}`, { appointmentId: a.id, createdBy: actor.id }, tx);
+      earnedPoints = await awardForAmount(a.customerId, base, `Servizio: ${before.service.name}`, { appointmentId: a.id, createdBy: actor.id, target: "servizi" }, tx);
     }
     return u;
   });
 
-  // notifiche al cliente
+  // notifiche al cliente (email da template + push + in-app)
   const c = before.customer;
+  const [op] = updated.operatorId ? await db.select().from(operators).where(eq(operators.id, updated.operatorId)) : [];
   const when = fmtRome(updated.proposedStartAt ?? updated.startAt);
-  const msgs: Partial<Record<AppointmentStatus, { title: string; body: string }>> = {
-    confermata: { title: "Prenotazione confermata ✔", body: `Ti aspettiamo ${when} per ${before.service.name} di ${before.dog.name}.` },
-    attesa_pagamento: { title: "Prenotazione: pagamento richiesto", body: `Per confermare ${before.service.name} del ${when} completa il pagamento dalla tua area personale.` },
-    rifiutata: { title: "Richiesta non accettata", body: `Purtroppo non possiamo accogliere la richiesta del ${fmtRome(a.startAt)}.${input.reason ? " " + input.reason : ""} Contattaci per trovare un'alternativa.` },
-    proposta: { title: "Ti proponiamo un nuovo orario", body: `Per ${before.dog.name} ti proponiamo ${when}. Accetta o rifiuta dalla tua area personale.` },
-    annullata: { title: "Appuntamento annullato", body: `L'appuntamento del ${fmtRome(a.startAt)} è stato annullato.` },
-    completata: { title: "Grazie per aver scelto Dog's Planet!", body: `${before.dog.name} è pronto e bellissimo. I punti Fidelity sono stati accreditati.` },
+  const due = updated.paymentMode === "saldo" ? (updated.finalPriceCents ?? updated.estimatedPriceCents) : updated.depositCents;
+  const vars = { cane: before.dog.name, servizio: before.service.name, data: when, operatore: op?.name ?? "", messaggio: input.reason ?? "", importo: euro(due), punti: earnedPoints };
+  const msgs: Partial<Record<AppointmentStatus, { title: string; body: string; template: string }>> = {
+    confermata: { title: "Prenotazione confermata ✔", body: `Ti aspettiamo ${when} per ${before.service.name} di ${before.dog.name}.`, template: "appuntamento_confermato" },
+    attesa_pagamento: { title: "Prenotazione: pagamento richiesto", body: `Per confermare ${before.service.name} del ${when} completa il pagamento dalla tua area personale.`, template: "appuntamento_pagamento" },
+    rifiutata: { title: "Richiesta non accettata", body: `Non possiamo accogliere la richiesta del ${fmtRome(a.startAt)}.${input.reason ? " " + input.reason : ""}`, template: "appuntamento_rifiutato" },
+    proposta: { title: "Ti proponiamo un nuovo orario", body: `Per ${before.dog.name} ti proponiamo ${when}. Accetta o rifiuta dalla tua area personale.`, template: "appuntamento_proposta" },
+    annullata: { title: "Appuntamento annullato", body: `L'appuntamento del ${fmtRome(a.startAt)} è stato annullato.`, template: "appuntamento_annullato" },
+    completata: { title: "Grazie per aver scelto Dog's Planet!", body: `${before.dog.name} è pronto e bellissimo.${earnedPoints ? ` +${earnedPoints} punti Fidelity.` : ""}`, template: "appuntamento_completato" },
   };
   const m = msgs[updated.status];
   if (m && updated.status !== a.status) {
     if (isCustomer) await notifyStaff("richieste", { title: `Cliente: ${m.title}`, body: `${c.firstName} ${c.lastName} – ${before.dog.name}`, url: `/admin/richieste?id=${a.id}` });
-    else await notifyUser(c, { ...m, url: "/account/appuntamenti", template: `app_${updated.status}` });
+    else await notifyUser(c, { title: m.title, body: m.body, url: "/account/appuntamenti", template: m.template, vars });
   }
   return updated;
 }

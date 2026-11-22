@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import { Logo } from "@/components/brand";
@@ -27,7 +27,7 @@ function AuthCard({ title, children }: { title: string; children: React.ReactNod
 export function LoginPage() {
   const qc = useQueryClient();
   const [, nav] = useLocation();
-  const [f, setF] = useState({ email: "", password: "" });
+  const [f, setF] = useState({ login: "", password: "" });
   const [err, setErr] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   const submit = async (e: React.FormEvent) => {
@@ -35,13 +35,14 @@ export function LoginPage() {
     try {
       const u = await post("/api/auth/login", f);
       qc.setQueryData(["me"], u);
+      if (u.mustChangePassword) return nav("/cambia-password");
       nav(nextUrl(u.role === "customer" ? "/account" : "/admin"));
     } catch (x) { setErr(x); } finally { setBusy(false); }
   };
   return (
     <AuthCard title="Accedi">
       <form onSubmit={submit} className="space-y-3">
-        <Field label="Email"><input type="email" autoComplete="email" className="input" required value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} /></Field>
+        <Field label="Email o username"><input autoComplete="username" autoCapitalize="none" className="input" required value={f.login} onChange={(e) => setF({ ...f, login: e.target.value })} /></Field>
         <Field label="Password"><input type="password" autoComplete="current-password" className="input" required value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} /></Field>
         <ErrorBox error={err} />
         <button className="btn-primary w-full" disabled={busy}>Accedi</button>
@@ -110,8 +111,8 @@ export function ForgotPage() {
   return (
     <AuthCard title="Password dimenticata">
       {sent ? <p className="text-center text-sm">Se l'indirizzo è registrato riceverai un'email con il link per scegliere una nuova password.</p> : (
-        <form onSubmit={async (e) => { e.preventDefault(); try { await post("/api/auth/forgot-password", { email }); setSent(true); } catch (x) { setErr(x); } }} className="space-y-3">
-          <Field label="Email"><input type="email" className="input" required value={email} onChange={(e) => setEmail(e.target.value)} /></Field>
+        <form onSubmit={async (e) => { e.preventDefault(); try { await post("/api/auth/forgot-password", { login: email }); setSent(true); } catch (x) { setErr(x); } }} className="space-y-3">
+          <Field label="Email o username"><input className="input" required value={email} onChange={(e) => setEmail(e.target.value)} /></Field>
           <ErrorBox error={err} />
           <button className="btn-primary w-full">Invia link</button>
         </form>
@@ -133,6 +134,45 @@ export function ResetPage() {
         <ErrorBox error={err} />
         <button className="btn-primary w-full">Salva</button>
       </form>
+    </AuthCard>
+  );
+}
+
+/** Cambio obbligatorio della password temporanea (primo accesso admin e collaboratori). */
+export function ForceChangePasswordPage() {
+  const qc = useQueryClient();
+  const [, nav] = useLocation();
+  const [f, setF] = useState({ current: "", password: "", confirm: "" });
+  const [err, setErr] = useState<unknown>(null);
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault(); setErr(null);
+    if (f.password !== f.confirm) return setErr(new Error("Le due password non coincidono"));
+    try { const u = await post("/api/auth/change-password", { current: f.current, password: f.password }); qc.setQueryData(["me"], u); nav(u.role === "customer" ? "/account" : "/admin"); }
+    catch (x) { setErr(x); }
+  };
+  return (
+    <AuthCard title="Imposta una nuova password">
+      <p className="mb-4 text-center text-sm text-slate-600">Stai usando una password temporanea. Per sicurezza scegline una nuova prima di continuare.</p>
+      <form onSubmit={submit} className="space-y-3">
+        <Field label="Password temporanea"><input type="password" autoComplete="current-password" className="input" required value={f.current} onChange={(e) => setF({ ...f, current: e.target.value })} /></Field>
+        <Field label="Nuova password" hint="Almeno 8 caratteri"><input type="password" minLength={8} autoComplete="new-password" className="input" required value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} /></Field>
+        <Field label="Ripeti la nuova password"><input type="password" minLength={8} autoComplete="new-password" className="input" required value={f.confirm} onChange={(e) => setF({ ...f, confirm: e.target.value })} /></Field>
+        <ErrorBox error={err} />
+        <button className="btn-primary w-full">Salva e continua</button>
+      </form>
+    </AuthCard>
+  );
+}
+
+export function VerifyEmailPage() {
+  const token = new URLSearchParams(window.location.search).get("token") || "";
+  const [state, setState] = useState<"wait" | "ok" | "err">("wait");
+  const [msg, setMsg] = useState("");
+  useEffect(() => { post("/api/auth/verify-email", { token }).then(() => setState("ok")).catch((e) => { setState("err"); setMsg(e.message); }); }, [token]);
+  return (
+    <AuthCard title="Verifica email">
+      <p className="text-center text-sm">{state === "wait" ? "Verifica in corso…" : state === "ok" ? "Indirizzo email verificato, grazie!" : msg}</p>
+      <div className="mt-4 text-center"><Link href="/account" className="btn-primary">Vai alla tua area</Link></div>
     </AuthCard>
   );
 }

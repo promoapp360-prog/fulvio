@@ -10,7 +10,7 @@ import { db, pool } from "./db";
 import { pages } from "../shared/schema";
 import { runMigrations } from "./migrate";
 import { seedIfEmpty } from "./seed";
-import { setupSession } from "./auth";
+import { setupSession, csrfGuard } from "./auth";
 import { errorHandler } from "./util";
 import { readStored } from "./services/storage";
 import { getSettings } from "./services/settings";
@@ -51,6 +51,7 @@ async function main() {
 
   // il webhook Stripe richiede il body grezzo: va montato prima del parser JSON
   app.use("/api/webhooks", webhooks);
+  app.use("/api", csrfGuard);
   app.use(express.json({ limit: "1mb" }));
   app.use(express.urlencoded({ extended: false, limit: "1mb" }));
   setupSession(app);
@@ -80,7 +81,7 @@ async function main() {
   });
   app.get("/sitemap.xml", (req, res) => {
     const base = process.env.PUBLIC_URL || `${req.protocol}://${req.get("host")}`;
-    const urls = ["/", ...Object.keys(ROUTE_PAGES).filter((x) => x !== "/")];
+    const urls = ["/", ...Object.keys(ROUTE_PAGES).filter((x) => x !== "/"), "/installa-app"];
     res.type("application/xml").send(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls.map((u) => `<url><loc>${base}${u}</loc></url>`).join("")}</urlset>`);
   });
 
@@ -120,7 +121,7 @@ async function main() {
 const ROUTE_PAGES: Record<string, string> = {
   "/": "home", "/chi-siamo": "chi-siamo", "/toelettatura": "toelettatura", "/servizi": "servizi", "/self-service": "self-service",
   "/pensione-casalinga": "pensione-casalinga", "/fidelity-card": "fidelity-card", "/pet-shop": "pet-shop", "/contatti": "contatti",
-  "/richiedi-prenotazione": "richiedi-prenotazione", "/privacy-policy": "privacy-policy", "/cookie-policy": "cookie-policy", "/condizioni-del-servizio": "condizioni-del-servizio",
+  "/richiedi-prenotazione": "richiedi-prenotazione", "/privacy-policy": "privacy-policy", "/cookie-policy": "cookie-policy", "/condizioni-del-servizio": "condizioni-del-servizio", "/installa-app": "installa-app",
 };
 const metaCache = new Map<string, { t: number; title: string; desc: string }>();
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]!));
@@ -144,7 +145,7 @@ async function injectMeta(html: string, url: string) {
   return html.replace("<!--META-->", [
     `<title>${esc(title)}</title>`, `<meta name="description" content="${esc(desc)}">`, `<meta name="robots" content="${robots}">`,
     `<link rel="canonical" href="${base}${pathname}">`, `<meta property="og:title" content="${esc(title)}">`, `<meta property="og:description" content="${esc(desc)}">`,
-    `<meta property="og:type" content="website">`, `<meta property="og:image" content="${base}/brand/og-image.jpg">`, `<meta property="og:locale" content="it_IT">`,
+    `<meta property="og:type" content="website">`, s.seo.searchConsoleVerification ? `<meta name="google-site-verification" content="${esc(s.seo.searchConsoleVerification)}">` : "", `<meta property="og:image" content="${base}/brand/og-image.jpg">`, `<meta property="og:locale" content="it_IT">`,
   ].join("\n    "));
 }
 

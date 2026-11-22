@@ -3,7 +3,7 @@ import { Link, Route, Switch, useLocation, Redirect } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import {
   LayoutDashboard, CalendarDays, Inbox, Users, Scissors, UserCog, Clock, Wallet, Droplets, Star, Package, Boxes, Truck, ShoppingCart,
-  Home, FileText, Megaphone, BarChart3, ShieldCheck, Settings, Menu, X, LogOut, Globe, Database,
+  Home, FileText, Megaphone, BarChart3, ShieldCheck, Settings, Menu, X, LogOut, Globe, Dog, Tags, CalendarClock, HandCoins, Percent, Search,
 } from "lucide-react";
 import { Logo } from "@/components/brand";
 import { Spinner, Empty } from "@/components/ui";
@@ -11,44 +11,49 @@ import { get } from "@/lib/api";
 import { useMe, useLogout, can, isStaffRole } from "@/lib/auth";
 import Dashboard from "./Dashboard";
 import Agenda, { Requests } from "./Agenda";
-import { Customers, CustomerDetail, DogFields } from "./Crm";
-import { Services, Operators } from "./Catalog";
-import { Worklogs, Users as StaffUsers } from "./Staff";
+import { Customers, CustomerDetail, DogsPage } from "./Crm";
+import { Services, PriceList, Operators, Availability } from "./Catalog";
+import { Worklogs, Settlements, Users as StaffUsers } from "./Staff";
 import { Payments, SelfService, Loyalty } from "./Money";
 import { Products, Stock, Suppliers, Orders, Boarding } from "./Shop";
-import { Content, Marketing } from "./Content";
+import { Content, SeoPage, Promotions, Communications } from "./Content";
 import { Stats } from "./Stats";
-import { SettingsPage, Privacy, System } from "./System";
+import { SettingsPage, Privacy } from "./System";
 
-const MENU: { href: string; label: string; icon: any; perm: string; group: string }[] = [
-  { href: "/admin", label: "Dashboard", icon: LayoutDashboard, perm: "agenda", group: "" },
-  { href: "/admin/agenda", label: "Agenda", icon: CalendarDays, perm: "agenda", group: "Appuntamenti" },
-  { href: "/admin/richieste", label: "Richieste", icon: Inbox, perm: "richieste", group: "Appuntamenti" },
-  { href: "/admin/clienti", label: "Clienti e cani", icon: Users, perm: "clienti", group: "CRM" },
-  { href: "/admin/campi-cane", label: "Campi scheda cane", icon: FileText, perm: "clienti", group: "CRM" },
-  { href: "/admin/servizi", label: "Servizi e listino", icon: Scissors, perm: "servizi", group: "Salone" },
-  { href: "/admin/operatori", label: "Operatori e turni", icon: UserCog, perm: "operatori", group: "Salone" },
-  { href: "/admin/ore", label: "Ore e compensi", icon: Clock, perm: "ore", group: "Salone" },
-  { href: "/admin/pagamenti", label: "Pagamenti e incassi", icon: Wallet, perm: "pagamenti", group: "Cassa" },
-  { href: "/admin/self-service", label: "Self-service", icon: Droplets, perm: "selfservice", group: "Cassa" },
-  { href: "/admin/fidelity", label: "Fidelity Card", icon: Star, perm: "fidelity", group: "Cassa" },
-  { href: "/admin/pensione", label: "Pensione casalinga", icon: Home, perm: "pensione", group: "Servizi extra" },
-  { href: "/admin/prodotti", label: "Prodotti", icon: Package, perm: "shop", group: "Shop e magazzino" },
-  { href: "/admin/ordini", label: "Ordini shop", icon: ShoppingCart, perm: "shop", group: "Shop e magazzino" },
-  { href: "/admin/magazzino", label: "Magazzino", icon: Boxes, perm: "magazzino", group: "Shop e magazzino" },
-  { href: "/admin/fornitori", label: "Fornitori", icon: Truck, perm: "magazzino", group: "Shop e magazzino" },
-  { href: "/admin/contenuti", label: "Contenuti sito", icon: Globe, perm: "contenuti", group: "Sito e marketing" },
-  { href: "/admin/marketing", label: "Promozioni e comunicazioni", icon: Megaphone, perm: "marketing", group: "Sito e marketing" },
-  { href: "/admin/statistiche", label: "Statistiche", icon: BarChart3, perm: "statistiche", group: "Amministrazione" },
-  { href: "/admin/utenti", label: "Utenti e permessi", icon: ShieldCheck, perm: "utenti", group: "Amministrazione" },
-  { href: "/admin/privacy", label: "Contatti privacy", icon: FileText, perm: "utenti", group: "Amministrazione" },
-  { href: "/admin/impostazioni", label: "Impostazioni", icon: Settings, perm: "impostazioni", group: "Amministrazione" },
-  { href: "/admin/sistema", label: "Backup e log", icon: Database, perm: "admin", group: "Amministrazione" },
+// Menu amministrativo (punto 30): ogni voce visibile solo con il permesso corrispondente
+const MENU: { href: string; label: string; icon: any; perm: string[]; group: string }[] = [
+  { href: "/admin", label: "Dashboard", icon: LayoutDashboard, perm: ["agenda_view"], group: "" },
+  { href: "/admin/agenda", label: "Agenda", icon: CalendarDays, perm: ["agenda_view"], group: "Appuntamenti" },
+  { href: "/admin/richieste", label: "Richieste prenotazioni", icon: Inbox, perm: ["richieste"], group: "Appuntamenti" },
+  { href: "/admin/clienti", label: "Clienti", icon: Users, perm: ["clienti"], group: "Clienti" },
+  { href: "/admin/cani", label: "Schede cani", icon: Dog, perm: ["clienti"], group: "Clienti" },
+  { href: "/admin/servizi", label: "Servizi", icon: Scissors, perm: ["servizi", "impostazioni"], group: "Salone" },
+  { href: "/admin/listino", label: "Listino", icon: Tags, perm: ["servizi", "impostazioni"], group: "Salone" },
+  { href: "/admin/operatori", label: "Operatori", icon: UserCog, perm: ["personale"], group: "Salone" },
+  { href: "/admin/turni", label: "Turni e disponibilità", icon: CalendarClock, perm: ["personale"], group: "Salone" },
+  { href: "/admin/ore", label: "Ore lavorate", icon: Clock, perm: ["personale", "agenda_view"], group: "Personale" },
+  { href: "/admin/compensi", label: "Compensi collaboratori", icon: HandCoins, perm: ["personale"], group: "Personale" },
+  { href: "/admin/pagamenti", label: "Pagamenti", icon: Wallet, perm: ["incassi", "pagamenti"], group: "Cassa" },
+  { href: "/admin/self-service", label: "Incassi self-service", icon: Droplets, perm: ["pagamenti", "incassi"], group: "Cassa" },
+  { href: "/admin/fidelity", label: "Fidelity Card", icon: Star, perm: ["fidelity"], group: "Cassa" },
+  { href: "/admin/pensione", label: "Pensione casalinga", icon: Home, perm: ["pensione"], group: "Servizi extra" },
+  { href: "/admin/prodotti", label: "Prodotti", icon: Package, perm: ["shop"], group: "Shop e magazzino" },
+  { href: "/admin/magazzino", label: "Magazzino", icon: Boxes, perm: ["magazzino"], group: "Shop e magazzino" },
+  { href: "/admin/fornitori", label: "Fornitori", icon: Truck, perm: ["magazzino"], group: "Shop e magazzino" },
+  { href: "/admin/ordini", label: "Ordini", icon: ShoppingCart, perm: ["shop"], group: "Shop e magazzino" },
+  { href: "/admin/promozioni", label: "Promozioni", icon: Percent, perm: ["marketing"], group: "Marketing" },
+  { href: "/admin/comunicazioni", label: "Comunicazioni", icon: Megaphone, perm: ["marketing"], group: "Marketing" },
+  { href: "/admin/statistiche", label: "Statistiche", icon: BarChart3, perm: ["statistiche"], group: "Marketing" },
+  { href: "/admin/contenuti", label: "Contenuti sito", icon: Globe, perm: ["contenuti"], group: "Sito" },
+  { href: "/admin/seo", label: "SEO", icon: Search, perm: ["contenuti"], group: "Sito" },
+  { href: "/admin/privacy", label: "Privacy e consensi", icon: FileText, perm: ["privacy"], group: "Amministrazione" },
+  { href: "/admin/utenti", label: "Utenti e permessi", icon: ShieldCheck, perm: ["utenti"], group: "Amministrazione" },
+  { href: "/admin/impostazioni", label: "Impostazioni", icon: Settings, perm: ["impostazioni", "fidelity", "personale"], group: "Amministrazione" },
 ];
 
 function Guard({ perm, children }: { perm: string; children: React.ReactNode }) {
   const { data: me } = useMe();
-  const ok = perm === "admin" ? me?.role === "admin" : can(me ?? null, perm);
+  const ok = perm === "admin" ? me?.role === "admin" : can(me ?? null, ...perm.split(","));
   return ok ? <>{children}</> : <Empty>Non hai i permessi per questa sezione.</Empty>;
 }
 
@@ -61,9 +66,9 @@ export default function AdminArea() {
   if (isLoading) return <Spinner />;
   if (!me) return <Redirect to={`/login?next=${encodeURIComponent(loc)}`} />;
   if (!isStaffRole(me)) return <Redirect to="/account" />;
-  const allowed = MENU.filter((m) => (m.perm === "admin" ? me.role === "admin" : can(me, m.perm)));
+  const allowed = MENU.filter((m) => can(me, ...m.perm));
   const groups = Array.from(new Set(allowed.map((m) => m.group)));
-  const badge = (href: string) => href === "/admin/richieste" ? (dash?.counts?.pending || 0) + (dash?.counts?.changes || 0) : href === "/admin/pensione" ? dash?.counts?.boarding : href === "/admin/ordini" ? dash?.counts?.orders : href === "/admin/magazzino" ? dash?.counts?.low_stock : 0;
+  const badge = (href: string) => href === "/admin/richieste" ? (dash?.counts?.pending || 0) + (dash?.counts?.changes || 0) : href === "/admin/pensione" ? dash?.counts?.boarding : href === "/admin/ordini" ? dash?.counts?.orders : href === "/admin/magazzino" ? dash?.counts?.low_stock : href === "/admin/comunicazioni" ? dash?.counts?.failed_emails : 0;
 
   return (
     <div className="flex min-h-screen bg-slate-50">
@@ -99,30 +104,34 @@ export default function AdminArea() {
         </header>
         <main className="p-4 sm:p-6">
           <Switch>
-            <Route path="/admin"><Guard perm="agenda"><Dashboard /></Guard></Route>
-            <Route path="/admin/agenda"><Guard perm="agenda"><Agenda /></Guard></Route>
+            <Route path="/admin"><Guard perm="agenda_view"><Dashboard /></Guard></Route>
+            <Route path="/admin/agenda"><Guard perm="agenda_view"><Agenda /></Guard></Route>
             <Route path="/admin/richieste"><Guard perm="richieste"><Requests /></Guard></Route>
-            <Route path="/admin/clienti/:id">{(p) => can(me, "clienti") ? <CustomerDetail id={Number(p.id)} /> : <Empty>Permesso negato</Empty>}</Route>
+            <Route path="/admin/clienti/:id">{(p) => <Guard perm="clienti"><CustomerDetail id={Number(p.id)} /></Guard>}</Route>
             <Route path="/admin/clienti"><Guard perm="clienti"><Customers /></Guard></Route>
-            <Route path="/admin/campi-cane"><Guard perm="clienti"><DogFields /></Guard></Route>
-            <Route path="/admin/servizi"><Guard perm="servizi"><Services /></Guard></Route>
-            <Route path="/admin/operatori"><Guard perm="operatori"><Operators /></Guard></Route>
-            <Route path="/admin/ore"><Guard perm="ore"><Worklogs /></Guard></Route>
-            <Route path="/admin/pagamenti"><Guard perm="pagamenti"><Payments /></Guard></Route>
-            <Route path="/admin/self-service"><Guard perm="selfservice"><SelfService /></Guard></Route>
+            <Route path="/admin/cani"><Guard perm="clienti"><DogsPage /></Guard></Route>
+            <Route path="/admin/servizi"><Guard perm="servizi,impostazioni"><Services /></Guard></Route>
+            <Route path="/admin/listino"><Guard perm="servizi,impostazioni"><PriceList /></Guard></Route>
+            <Route path="/admin/operatori"><Guard perm="personale"><Operators /></Guard></Route>
+            <Route path="/admin/turni"><Guard perm="personale"><Availability /></Guard></Route>
+            <Route path="/admin/ore"><Guard perm="personale,agenda_view"><Worklogs /></Guard></Route>
+            <Route path="/admin/compensi"><Guard perm="personale"><Settlements /></Guard></Route>
+            <Route path="/admin/pagamenti"><Guard perm="incassi,pagamenti"><Payments /></Guard></Route>
+            <Route path="/admin/self-service"><Guard perm="pagamenti,incassi"><SelfService /></Guard></Route>
             <Route path="/admin/fidelity"><Guard perm="fidelity"><Loyalty /></Guard></Route>
             <Route path="/admin/pensione"><Guard perm="pensione"><Boarding /></Guard></Route>
             <Route path="/admin/prodotti"><Guard perm="shop"><Products /></Guard></Route>
-            <Route path="/admin/ordini"><Guard perm="shop"><Orders /></Guard></Route>
             <Route path="/admin/magazzino"><Guard perm="magazzino"><Stock /></Guard></Route>
             <Route path="/admin/fornitori"><Guard perm="magazzino"><Suppliers /></Guard></Route>
-            <Route path="/admin/contenuti"><Guard perm="contenuti"><Content /></Guard></Route>
-            <Route path="/admin/marketing"><Guard perm="marketing"><Marketing /></Guard></Route>
+            <Route path="/admin/ordini"><Guard perm="shop"><Orders /></Guard></Route>
+            <Route path="/admin/promozioni"><Guard perm="marketing"><Promotions /></Guard></Route>
+            <Route path="/admin/comunicazioni"><Guard perm="marketing"><Communications /></Guard></Route>
             <Route path="/admin/statistiche"><Guard perm="statistiche"><Stats /></Guard></Route>
+            <Route path="/admin/contenuti"><Guard perm="contenuti"><Content /></Guard></Route>
+            <Route path="/admin/seo"><Guard perm="contenuti"><SeoPage /></Guard></Route>
+            <Route path="/admin/privacy"><Guard perm="privacy"><Privacy /></Guard></Route>
             <Route path="/admin/utenti"><Guard perm="utenti"><StaffUsers /></Guard></Route>
-            <Route path="/admin/privacy"><Guard perm="utenti"><Privacy /></Guard></Route>
-            <Route path="/admin/impostazioni"><Guard perm="impostazioni"><SettingsPage /></Guard></Route>
-            <Route path="/admin/sistema"><Guard perm="admin"><System /></Guard></Route>
+            <Route path="/admin/impostazioni"><Guard perm="impostazioni,fidelity,personale"><SettingsPage /></Guard></Route>
             <Route><Empty>Sezione non trovata.</Empty></Route>
           </Switch>
         </main>

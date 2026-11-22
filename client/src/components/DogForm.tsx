@@ -25,8 +25,8 @@ const Section = ({ title, children }: { title: string; children: React.ReactNode
 );
 
 /** Scheda cane completa, con i campi personalizzati definiti dall'amministratore. */
-export default function DogForm({ initial, onSubmit, onCancel, fieldsUrl = "/api/account/dog-fields" }: {
-  initial?: any; onSubmit: (d: any) => Promise<void>; onCancel?: () => void; fieldsUrl?: string;
+export default function DogForm({ initial, onSubmit, onCancel, fieldsUrl = "/api/account/dog-fields", adminExtras = false }: {
+  initial?: any; onSubmit: (d: any) => Promise<void>; onCancel?: () => void; fieldsUrl?: string; adminExtras?: boolean;
 }) {
   const [d, setD] = useState<any>(() => ({ ...emptyDog, ...(initial || {}), weightKg: initial?.weightKg ?? "", food: { ...(initial?.food || {}) }, customFields: { ...(initial?.customFields || {}) } }));
   const [err, setErr] = useState<unknown>(null);
@@ -50,8 +50,8 @@ export default function DogForm({ initial, onSubmit, onCancel, fieldsUrl = "/api
     try {
       const nul = (v: any) => (v === "" ? null : v);
       await onSubmit({
-        ...d, breed: nul(d.breed), weightKg: d.weightKg === "" ? null : Number(String(d.weightKg).replace(",", ".")), birthDate: nul(d.birthDate), lastBath: nul(d.lastBath),
-        id: undefined, ownerId: undefined, createdAt: undefined, updatedAt: undefined, archived: undefined, owner: undefined,
+        ...d, breed: nul(d.breed), ...(adminExtras ? { recallDays: d.recallDays ? Number(d.recallDays) : null } : { recallDays: undefined, lastRecallAt: undefined }), weightKg: d.weightKg === "" ? null : Number(String(d.weightKg).replace(",", ".")), birthDate: nul(d.birthDate), lastBath: nul(d.lastBath),
+        id: undefined, ownerId: undefined, createdAt: undefined, updatedAt: undefined, archived: undefined, owner: undefined, lastRecallAt: undefined,
       });
     } catch (x) { setErr(x); } finally { setBusy(false); }
   };
@@ -98,6 +98,16 @@ export default function DogForm({ initial, onSubmit, onCancel, fieldsUrl = "/api
         </div>
       </details>
       {(fields || []).some((f) => f.section === "altro") && <Section title="Altre informazioni">{custom("altro")}</Section>}
+      {adminExtras && (
+        <Section title="Richiamo periodico (solo salone)">
+          <Field label="Frequenza consigliata di trattamento (giorni)" hint="Es. 20, 30, 45: il cliente riceve un invito a richiedere un nuovo appuntamento. Nessuna prenotazione automatica.">
+            <select className="input" value={[20, 30, 45, 60].includes(Number(d.recallDays)) || !d.recallDays ? (d.recallDays ?? "") : "custom"} onChange={(e) => setD({ ...d, recallDays: e.target.value === "custom" ? (d.recallDays || 35) : e.target.value || null })}>
+              <option value="">Nessun richiamo</option><option value="20">20 giorni</option><option value="30">30 giorni</option><option value="45">45 giorni</option><option value="60">60 giorni</option><option value="custom">Personalizzata</option>
+            </select>
+          </Field>
+          {d.recallDays && ![20, 30, 45, 60].includes(Number(d.recallDays)) && <Field label="Giorni personalizzati"><input type="number" min={1} max={365} className="input" value={d.recallDays} onChange={(e) => setD({ ...d, recallDays: e.target.value })} /></Field>}
+        </Section>
+      )}
       <ErrorBox error={err} />
       <div className="flex justify-end gap-2">
         {onCancel && <button type="button" className="btn-ghost" onClick={onCancel}>Annulla</button>}

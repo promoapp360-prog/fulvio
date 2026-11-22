@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Phone } from "lucide-react";
 import { Modal, Spinner, StatusBadge, Field, MoneyInput, Check, ErrorBox, useToast } from "@/components/ui";
 import { get, post, patch } from "@/lib/api";
-import { useMe } from "@/lib/auth";
+import { useMe, can } from "@/lib/auth";
 import { fmtLong, fmtDateTime, romeParts } from "@/lib/format";
 import { euro, PAYMENT_MODES, PAYMENT_METHODS, PAYMENT_KINDS, SIZE_LABELS, STATUS_LABELS } from "@shared/constants";
 
@@ -22,11 +22,14 @@ export default function AppointmentDetail({ id, onClose }: { id: number | null; 
   const [pay, setPay] = useState<any>({ kind: "saldo", method: "contanti", amountCents: null, methodLabel: "" });
   const [err, setErr] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
+  const { data: settings } = useQuery<any>({ queryKey: ["admin-settings"], queryFn: () => get("/api/admin/settings"), staleTime: 5 * 60_000 });
+  const reasons: string[] = settings?.cancellation?.reasons || [];
+  const canAct = can(me ?? null, "richieste"), canEdit = can(me ?? null, "agenda_edit"), canPay = can(me ?? null, "pagamenti");
 
   useEffect(() => {
     if (!a) return;
     const p = romeParts(a.proposedStartAt || a.startAt);
-    setF({ date: p.day, time: p.time, operatorId: a.operatorId, durationMin: a.durationMin, finalPriceCents: a.finalPriceCents ?? a.estimatedPriceCents, paymentMode: a.paymentMode, depositCents: a.depositCents, reason: "", force: false, adminNotes: a.adminNotes || "" });
+    setF({ date: p.day, time: p.time, operatorId: a.operatorId, durationMin: a.durationMin, finalPriceCents: a.finalPriceCents ?? a.estimatedPriceCents, paymentMode: a.paymentMode, depositCents: a.depositCents, reason: "", cancelReason: "", treatmentNotes: a.treatmentNotes || "", force: false, adminNotes: a.adminNotes || "" });
     setPay({ kind: a.paidCents > 0 ? "saldo" : "totale", method: "contanti", amountCents: Math.max(0, (a.finalPriceCents ?? a.estimatedPriceCents ?? 0) - a.paidCents) || null, methodLabel: "" });
   }, [a]);
 
@@ -84,24 +87,37 @@ export default function AppointmentDetail({ id, onClose }: { id: number | null; 
           </div>
 
           <ErrorBox error={err} />
-          <div className="flex flex-wrap gap-2">
+          {a.cancelReason && <p className="rounded-xl bg-slate-100 p-3 text-sm"><b>{a.status === "assente" ? "Assenza" : "Annullato"}</b>{a.cancelledBy && ` dal ${a.cancelledBy}`}{a.cancelledAt && ` il ${fmtDateTime(a.cancelledAt)}`}: {a.cancelReason}{a.lateCancel && <span className="badge ml-2 bg-amber-100 text-amber-800">oltre il termine</span>}</p>}
+          {!canAct && <p className="text-xs text-slate-500">Non hai il permesso di confermare o modificare le richieste.</p>}
+          {canAct && <div className="flex flex-wrap gap-2">
             {["richiesta", "in_valutazione", "proposta", "attesa_pagamento"].includes(a.status) && <button disabled={busy} className="btn-primary" onClick={() => action("conferma", { ...timing, finalPriceCents: f.finalPriceCents, paymentMode: f.paymentMode, depositCents: f.depositCents })}>Conferma</button>}
             {a.status === "richiesta" && <button disabled={busy} className="btn-outline" onClick={() => action("valuta")}>Metti in valutazione</button>}
             {["richiesta", "in_valutazione", "proposta", "confermata"].includes(a.status) && <button disabled={busy} className="btn-outline" onClick={() => action("proponi", timing)}>Proponi questo orario</button>}
             {["richiesta", "in_valutazione", "confermata"].includes(a.status) && <button disabled={busy} className="btn-outline" onClick={() => action("richiedi_pagamento", { paymentMode: f.paymentMode === "saldo" ? "saldo" : "acconto", finalPriceCents: f.finalPriceCents, depositCents: f.depositCents })}>Richiedi pagamento on line</button>}
-            {["confermata", "attesa_pagamento"].includes(a.status) && <button disabled={busy} className="btn-outline" onClick={() => run(() => patch(`/api/admin/appointments/${id}`, { ...timing, finalPriceCents: f.finalPriceCents, adminNotes: f.adminNotes, force: f.force || undefined }), "Appuntamento aggiornato")}>Salva modifiche</button>}
-            {["confermata", "attesa_pagamento"].includes(a.status) && <button disabled={busy} className="btn-navy" onClick={() => action("completa", { finalPriceCents: f.finalPriceCents })}>Completato</button>}
-            {["confermata", "attesa_pagamento"].includes(a.status) && <button disabled={busy} className="btn-outline" onClick={() => action("assente")}>Cliente assente</button>}
+            {canEdit && ["confermata", "attesa_pagamento"].includes(a.status) && <button disabled={busy} className="btn-outline" onClick={() => run(() => patch(`/api/admin/appointments/${id}`, { ...timing, finalPriceCents: f.finalPriceCents, adminNotes: f.adminNotes, force: f.force || undefined }), "Appuntamento aggiornato")}>Salva modifiche</button>}
+            {["confermata", "attesa_pagamento"].includes(a.status) && <button disabled={busy} className="btn-navy" onClick={() => action("completa", { finalPriceCents: f.finalPriceCents, treatmentNotes: f.treatmentNotes || null })}>Completato</button>}
+            {["confermata", "attesa_pagamento"].includes(a.status) && <button disabled={busy} className="btn-outline" onClick={() => confirm("Registrare l'assenza del cliente?") && action("assente", { reason: f.cancelReason || "Cliente non presentato" })}>Cliente assente</button>}
             {["richiesta", "in_valutazione", "proposta"].includes(a.status) && <button disabled={busy} className="btn-danger" onClick={() => confirm("Rifiutare la richiesta?") && action("rifiuta")}>Rifiuta</button>}
-            {["confermata", "attesa_pagamento", "proposta", "in_valutazione", "richiesta"].includes(a.status) && <button disabled={busy} className="btn-ghost text-red-600" onClick={() => confirm("Annullare l'appuntamento?") && action("annulla")}>Annulla</button>}
-          </div>
+          </div>}
+          {canAct && ["confermata", "attesa_pagamento", "proposta", "in_valutazione", "richiesta"].includes(a.status) && (
+            <div className="flex flex-wrap items-end gap-2 rounded-2xl border border-red-100 bg-red-50/40 p-3">
+              <Field label="Motivo annullamento / assenza" className="min-w-[220px] flex-1"><select className="input" value={f.cancelReason} onChange={(e) => setF({ ...f, cancelReason: e.target.value })}><option value="">Seleziona…</option>{reasons.map((r) => <option key={r} value={r}>{r}</option>)}</select></Field>
+              <button disabled={busy || !f.cancelReason} className="btn-danger btn-sm" onClick={() => confirm("Annullare l'appuntamento? Il cliente riceverà una comunicazione.") && action("annulla", { reason: f.cancelReason })}>Annulla appuntamento</button>
+            </div>
+          )}
+          {["confermata", "attesa_pagamento", "completata"].includes(a.status) && (
+            <div className="rounded-2xl border border-slate-200 p-4">
+              <Field label="Note sul trattamento (storico del cane)"><textarea className="input" value={f.treatmentNotes || ""} onChange={(e) => setF({ ...f, treatmentNotes: e.target.value })} placeholder="Es. taglio corto 6 mm, molti nodi sulle zampe posteriori…" /></Field>
+              {a.status === "completata" && canEdit && <button className="btn-ghost btn-sm mt-2" onClick={() => run(() => patch(`/api/admin/appointments/${id}`, { treatmentNotes: f.treatmentNotes || null }), "Note salvate")}>Salva note trattamento</button>}
+            </div>
+          )}
 
           <div className="rounded-2xl border border-slate-200 p-4">
             <Field label="Note interne"><textarea className="input" value={f.adminNotes || ""} onChange={(e) => setF({ ...f, adminNotes: e.target.value })} /></Field>
-            <button className="btn-ghost btn-sm mt-2" onClick={() => run(() => patch(`/api/admin/appointments/${id}`, { adminNotes: f.adminNotes || null }), "Note salvate")}>Salva note</button>
+            {canEdit && <button className="btn-ghost btn-sm mt-2" onClick={() => run(() => patch(`/api/admin/appointments/${id}`, { adminNotes: f.adminNotes || null }), "Note salvate")}>Salva note</button>}
           </div>
 
-          <div className="rounded-2xl border border-slate-200 p-4">
+          {canPay &&           <div className="rounded-2xl border border-slate-200 p-4">
             <h3 className="mb-2 font-bold">Pagamenti</h3>
             {a.payments.length > 0 && <table className="table-dp mb-3"><tbody>{a.payments.map((p: any) => <tr key={p.id}><td>{fmtDateTime(p.paidAt ?? p.createdAt)}</td><td>{PAYMENT_KINDS[p.kind]}</td><td>{p.methodLabel || PAYMENT_METHODS[p.method]}</td><td className="font-bold">{euro(p.amountCents)}</td><td>{p.status}</td></tr>)}</tbody></table>}
             <div className="grid gap-2 sm:grid-cols-4">
@@ -111,7 +127,7 @@ export default function AppointmentDetail({ id, onClose }: { id: number | null; 
               <button className="btn-navy" disabled={busy || !pay.amountCents} onClick={() => run(() => post("/api/admin/payments", { appointmentId: id, kind: pay.kind, method: pay.method, amountCents: pay.amountCents, methodLabel: pay.method === "altro" ? pay.methodLabel || null : null }), "Pagamento registrato")}>Registra incasso</button>
               {pay.method === "altro" && <input className="input sm:col-span-2" placeholder="Specifica metodo" value={pay.methodLabel} onChange={(e) => setPay({ ...pay, methodLabel: e.target.value })} />}
             </div>
-          </div>
+          </div>}
 
           <details className="rounded-2xl border border-slate-200 p-4">
             <summary className="cursor-pointer font-bold">Storico modifiche ({a.events.length})</summary>

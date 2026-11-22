@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { Phone, MessageCircle, Mail, MapPin, Navigation } from "lucide-react";
-import { BUSINESS, fullAddress, googleMapsUrl, appleMapsUrl, mapEmbedUrl } from "@shared/constants";
+import { useBusiness } from "@/lib/settings";
 
 export function ContactCards() {
+  const B = useBusiness();
   const items = [
-    { icon: Phone, label: "Telefono", value: BUSINESS.phone, href: `tel:${BUSINESS.phoneIntl}` },
-    { icon: MessageCircle, label: "WhatsApp", value: BUSINESS.phone, href: `https://wa.me/${BUSINESS.whatsapp}` },
-    { icon: Mail, label: "Email", value: BUSINESS.email, href: `mailto:${BUSINESS.email}` },
+    { icon: Phone, label: "Telefono", value: B.phone, href: `tel:${B.phoneIntl}` },
+    { icon: MessageCircle, label: "WhatsApp", value: B.phone, href: `https://wa.me/${B.whatsapp}` },
+    { icon: Mail, label: "Email", value: B.email, href: `mailto:${B.email}` },
   ];
   return (
     <div className="grid gap-4 sm:grid-cols-3">
@@ -22,21 +23,22 @@ export function ContactCards() {
 
 /** Mappa caricata solo su richiesta (niente cookie di terze parti prima del click). */
 export function MapBox() {
+  const B = useBusiness();
   const [show, setShow] = useState(false);
   return (
     <div className="overflow-hidden rounded-3xl border border-sky-100 bg-brand-sky shadow-soft">
       {show ? (
-        <iframe title="Mappa Dog's Planet" src={mapEmbedUrl} className="h-80 w-full" loading="lazy" referrerPolicy="no-referrer-when-downgrade" />
+        <iframe title="Mappa Dog's Planet" src={B.mapEmbedUrl} className="h-80 w-full" loading="lazy" referrerPolicy="no-referrer-when-downgrade" />
       ) : (
         <div className="flex h-80 flex-col items-center justify-center gap-3 p-6 text-center">
           <MapPin className="text-brand-turquoise" size={40} />
-          <p className="font-bold text-brand-navy">{fullAddress}</p>
+          <p className="font-bold text-brand-navy">{B.fullAddress}</p>
           <button className="btn-outline btn-sm" onClick={() => setShow(true)}>Mostra la mappa (Google Maps)</button>
         </div>
       )}
       <div className="flex flex-wrap gap-2 border-t border-sky-100 bg-white p-4">
-        <a className="btn-primary btn-sm" href={googleMapsUrl} target="_blank" rel="noreferrer"><Navigation size={14} /> Naviga con Google Maps</a>
-        <a className="btn-outline btn-sm" href={appleMapsUrl} target="_blank" rel="noreferrer"><Navigation size={14} /> Apple Maps</a>
+        <a className="btn-primary btn-sm" href={B.googleMapsUrl} target="_blank" rel="noreferrer"><Navigation size={14} /> Naviga con Google Maps</a>
+        <a className="btn-outline btn-sm" href={B.appleMapsUrl} target="_blank" rel="noreferrer"><Navigation size={14} /> Apple Maps</a>
       </div>
     </div>
   );

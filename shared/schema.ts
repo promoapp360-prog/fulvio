@@ -31,6 +31,15 @@ export const users = pgTable("users", {
   lastLoginAt: ts("last_login_at"),
   resetToken: varchar("reset_token", { length: 128 }),
   resetExpires: ts("reset_expires"),
+  username: varchar("username", { length: 60 }),
+  mustChangePassword: boolean("must_change_password").notNull().default(false),
+  failedLogins: integer("failed_logins").notNull().default(0),
+  lockedUntil: ts("locked_until"),
+  sessionVersion: integer("session_version").notNull().default(1),
+  emailVerifiedAt: ts("email_verified_at"),
+  emailVerifyToken: varchar("email_verify_token", { length: 128 }),
+  commRecall: boolean("comm_recall").notNull().default(true),
+  unsubscribeToken: varchar("unsubscribe_token", { length: 64 }),
   createdAt: ts("created_at").notNull().defaultNow(),
   updatedAt: ts("updated_at").notNull().defaultNow(),
 });
@@ -77,6 +86,8 @@ export const dogs = pgTable("dogs", {
   food: jsonb("food").$type<DogFood>().notNull().default({}),
   customFields: jsonb("custom_fields").$type<Record<string, unknown>>().notNull().default({}),
   photoUrl: text("photo_url"),
+  recallDays: integer("recall_days"),
+  lastRecallAt: ts("last_recall_at"),
   archived: boolean("archived").notNull().default(false),
   createdAt: ts("created_at").notNull().defaultNow(),
   updatedAt: ts("updated_at").notNull().defaultNow(),
@@ -95,6 +106,7 @@ export const services = pgTable("services", {
   active: boolean("active").notNull().default(true),
   visible: boolean("visible").notNull().default(true),
   sortOrder: integer("sort_order").notNull().default(0),
+  earnsPoints: boolean("earns_points").notNull().default(true),
   createdAt: ts("created_at").notNull().defaultNow(),
 });
 
@@ -193,6 +205,11 @@ export const appointments = pgTable("appointments", {
   changeRequest: text("change_request"),
   source: varchar("source", { length: 20 }).notNull().default("online"),
   reminderSentAt: ts("reminder_sent_at"),
+  treatmentNotes: text("treatment_notes"),
+  cancelReason: varchar("cancel_reason", { length: 255 }),
+  cancelledAt: ts("cancelled_at"),
+  cancelledBy: varchar("cancelled_by", { length: 20 }),
+  lateCancel: boolean("late_cancel").notNull().default(false),
   createdAt: ts("created_at").notNull().defaultNow(),
   updatedAt: ts("updated_at").notNull().defaultNow(),
 });
@@ -238,6 +255,8 @@ export const products = pgTable("products", {
   supplierId: integer("supplier_id").references(() => suppliers.id),
   imageUrl: text("image_url"),
   isFood: boolean("is_food").notNull().default(false),
+  earnsPoints: boolean("earns_points").notNull().default(true),
+  privateLabel: boolean("private_label").notNull().default(false),
   visibleOnline: boolean("visible_online").notNull().default(true),
   active: boolean("active").notNull().default(true),
   createdAt: ts("created_at").notNull().defaultNow(),
@@ -249,6 +268,7 @@ export const stockMovements = pgTable("stock_movements", {
   productId: integer("product_id").notNull().references(() => products.id),
   qty: integer("qty").notNull(),
   kind: varchar("kind", { length: 20 }).notNull(),
+  variantId: integer("variant_id"),
   reference: varchar("reference", { length: 120 }),
   note: text("note"),
   createdBy: integer("created_by").references(() => users.id),
@@ -257,8 +277,20 @@ export const stockMovements = pgTable("stock_movements", {
 
 export const orders = pgTable("orders", {
   id: serial("id").primaryKey(),
-  customerId: integer("customer_id").notNull().references(() => users.id),
+  customerId: integer("customer_id").references(() => users.id),
   status: varchar("status", { length: 20 }).notNull().default("in_attesa"),
+  channel: varchar("channel", { length: 10 }).notNull().default("online"),
+  subtotalCents: integer("subtotal_cents").notNull().default(0),
+  deliveryCents: integer("delivery_cents").notNull().default(0),
+  deliveryZone: varchar("delivery_zone", { length: 80 }),
+  deliveryAddress: varchar("delivery_address", { length: 255 }),
+  deliveryCity: varchar("delivery_city", { length: 120 }),
+  deliveryCap: varchar("delivery_cap", { length: 10 }),
+  deliveryEta: varchar("delivery_eta", { length: 80 }),
+  pointsUsed: integer("points_used").notNull().default(0),
+  pointsDiscountCents: integer("points_discount_cents").notNull().default(0),
+  stockCommitted: boolean("stock_committed").notNull().default(false),
+  cancelledAt: ts("cancelled_at"),
   totalCents: integer("total_cents").notNull().default(0),
   discountCents: integer("discount_cents").notNull().default(0),
   promoCode: varchar("promo_code", { length: 40 }),
@@ -272,6 +304,7 @@ export const orderItems = pgTable("order_items", {
   id: serial("id").primaryKey(),
   orderId: integer("order_id").notNull().references(() => orders.id),
   productId: integer("product_id").references(() => products.id),
+  variantId: integer("variant_id"),
   name: varchar("name", { length: 160 }).notNull(),
   qty: integer("qty").notNull(),
   unitPriceCents: integer("unit_price_cents").notNull(),
@@ -291,6 +324,7 @@ export const payments = pgTable("payments", {
   provider: varchar("provider", { length: 30 }),
   providerRef: varchar("provider_ref", { length: 255 }),
   checkoutUrl: text("checkout_url"),
+  reason: varchar("reason", { length: 160 }),
   paidAt: ts("paid_at"),
   note: text("note"),
   createdBy: integer("created_by").references(() => users.id),
@@ -312,6 +346,8 @@ export const workLogs = pgTable("work_logs", {
   correctionNote: text("correction_note"),
   correctedBy: integer("corrected_by").references(() => users.id),
   paid: boolean("paid").notNull().default(false),
+  rawMin: integer("raw_min").notNull().default(0),
+  settlementId: integer("settlement_id"),
   createdAt: ts("created_at").notNull().defaultNow(),
 });
 
@@ -344,6 +380,12 @@ export const loyaltyTransactions = pgTable("loyalty_transactions", {
   appointmentId: integer("appointment_id").references(() => appointments.id),
   orderId: integer("order_id").references(() => orders.id),
   createdBy: integer("created_by").references(() => users.id),
+  kind: varchar("kind", { length: 12 }).notNull().default("accumulo"),
+  expiresAt: ts("expires_at"),
+  remaining: integer("remaining").notNull().default(0),
+  valueCents: integer("value_cents"),
+  relatedTxId: integer("related_tx_id"),
+  paymentId: integer("payment_id"),
   createdAt: ts("created_at").notNull().defaultNow(),
 });
 
@@ -352,6 +394,8 @@ export const loyaltyRewards = pgTable("loyalty_rewards", {
   name: varchar("name", { length: 120 }).notNull(),
   description: text("description"),
   pointsCost: integer("points_cost").notNull(),
+  rewardType: varchar("reward_type", { length: 20 }).notNull().default("premio"),
+  valueCents: integer("value_cents"),
   active: boolean("active").notNull().default(true),
 });
 
@@ -365,6 +409,10 @@ export const boardingRequests = pgTable("boarding_requests", {
   customerNotes: text("customer_notes"),
   adminNotes: text("admin_notes"),
   priceCents: integer("price_cents"),
+  needs: text("needs"),
+  proposedStart: date("proposed_start"),
+  proposedEnd: date("proposed_end"),
+  lastMessage: text("last_message"),
   createdAt: ts("created_at").notNull().defaultNow(),
   updatedAt: ts("updated_at").notNull().defaultNow(),
 });
@@ -429,6 +477,7 @@ export const campaigns = pgTable("campaigns", {
   channel: varchar("channel", { length: 10 }).notNull().default("email"),
   audience: varchar("audience", { length: 20 }).notNull().default("marketing"),
   promotionId: integer("promotion_id").references(() => promotions.id),
+  filters: jsonb("filters").$type<Record<string, unknown>>().notNull().default({}),
   status: varchar("status", { length: 10 }).notNull().default("bozza"),
   sentCount: integer("sent_count").notNull().default(0),
   sentAt: ts("sent_at"),
@@ -477,6 +526,16 @@ export const privacyContacts = pgTable("privacy_contacts", {
   source: varchar("source", { length: 80 }),
   linkedUserId: integer("linked_user_id").references(() => users.id),
   importedAt: ts("imported_at").notNull().defaultNow(),
+  externalId: varchar("external_id", { length: 120 }),
+  importId: integer("import_id"),
+  privacyStatus: varchar("privacy_status", { length: 20 }).notNull().default("non_inviata"),
+  privacyVersion: varchar("privacy_version", { length: 20 }),
+  privacySeenAt: ts("privacy_seen_at"),
+  marketingStatus: varchar("marketing_status", { length: 20 }).notNull().default("non_richiesto"),
+  marketingConsentAt: ts("marketing_consent_at"),
+  consentProof: text("consent_proof"),
+  revokedAt: ts("revoked_at"),
+  updatedAt: ts("updated_at").notNull().defaultNow(),
 });
 
 export const settings = pgTable("settings", {
@@ -493,6 +552,148 @@ export const auditLog = pgTable("audit_log", {
   entityId: varchar("entity_id", { length: 40 }),
   data: jsonb("data").$type<Record<string, unknown>>().notNull().default({}),
   ip: varchar("ip", { length: 64 }),
+  createdAt: ts("created_at").notNull().defaultNow(),
+});
+
+export const loginLog = pgTable("login_log", {
+  id: bigserial("id", { mode: "number" }).primaryKey(),
+  userId: integer("user_id").references(() => users.id),
+  login: varchar("login", { length: 255 }).notNull(),
+  success: boolean("success").notNull(),
+  reason: varchar("reason", { length: 60 }),
+  ip: varchar("ip", { length: 64 }),
+  userAgent: varchar("user_agent", { length: 255 }),
+  createdAt: ts("created_at").notNull().defaultNow(),
+});
+
+export const consentPolicies = pgTable("consent_policies", {
+  id: serial("id").primaryKey(),
+  kind: varchar("kind", { length: 20 }).notNull(),
+  version: varchar("version", { length: 20 }).notNull(),
+  summary: text("summary"),
+  publishedAt: ts("published_at").notNull().defaultNow(),
+  active: boolean("active").notNull().default(true),
+});
+
+export const contactImports = pgTable("contact_imports", {
+  id: serial("id").primaryKey(),
+  filename: varchar("filename", { length: 255 }).notNull(),
+  source: varchar("source", { length: 80 }).notNull(),
+  rowsTotal: integer("rows_total").notNull().default(0),
+  imported: integer("imported").notNull().default(0),
+  updated: integer("updated").notNull().default(0),
+  skipped: integer("skipped").notNull().default(0),
+  linked: integer("linked").notNull().default(0),
+  duplicates: integer("duplicates").notNull().default(0),
+  errors: jsonb("errors").$type<unknown[]>().notNull().default([]),
+  createdBy: integer("created_by").references(() => users.id),
+  createdAt: ts("created_at").notNull().defaultNow(),
+});
+
+export const privacyContactHistory = pgTable("privacy_contact_history", {
+  id: bigserial("id", { mode: "number" }).primaryKey(),
+  contactId: integer("contact_id").notNull().references(() => privacyContacts.id),
+  actorId: integer("actor_id").references(() => users.id),
+  importId: integer("import_id"),
+  changes: jsonb("changes").$type<Record<string, unknown>>().notNull(),
+  createdAt: ts("created_at").notNull().defaultNow(),
+});
+
+export const customerConsents = pgTable("customer_consents", {
+  id: bigserial("id", { mode: "number" }).primaryKey(),
+  userId: integer("user_id").references(() => users.id),
+  privacyContactId: integer("privacy_contact_id"),
+  kind: varchar("kind", { length: 20 }).notNull(),
+  granted: boolean("granted").notNull(),
+  policyVersion: varchar("policy_version", { length: 20 }),
+  source: varchar("source", { length: 60 }).notNull(),
+  proof: text("proof"),
+  ip: varchar("ip", { length: 64 }),
+  userAgent: varchar("user_agent", { length: 255 }),
+  createdBy: integer("created_by").references(() => users.id),
+  createdAt: ts("created_at").notNull().defaultNow(),
+});
+
+export const staffSettlements = pgTable("staff_settlements", {
+  id: serial("id").primaryKey(),
+  operatorId: integer("operator_id").notNull().references(() => operators.id),
+  weekStart: date("week_start").notNull(),
+  weekEnd: date("week_end").notNull(),
+  minutes: integer("minutes").notNull(),
+  grossCents: integer("gross_cents").notNull(),
+  adjustmentsCents: integer("adjustments_cents").notNull().default(0),
+  adjustmentNote: text("adjustment_note"),
+  totalCents: integer("total_cents").notNull(),
+  status: varchar("status", { length: 12 }).notNull().default("da_pagare"),
+  paidAt: date("paid_at"),
+  paidMethod: varchar("paid_method", { length: 30 }),
+  note: text("note"),
+  createdBy: integer("created_by").references(() => users.id),
+  createdAt: ts("created_at").notNull().defaultNow(),
+});
+
+export const productCategories = pgTable("product_categories", {
+  id: serial("id").primaryKey(),
+  name: varchar("name", { length: 80 }).notNull(),
+  slug: varchar("slug", { length: 100 }).notNull(),
+  sortOrder: integer("sort_order").notNull().default(0),
+  active: boolean("active").notNull().default(true),
+});
+
+export const productVariants = pgTable("product_variants", {
+  id: serial("id").primaryKey(),
+  productId: integer("product_id").notNull().references(() => products.id),
+  name: varchar("name", { length: 120 }).notNull(),
+  sku: varchar("sku", { length: 60 }),
+  priceCents: integer("price_cents"),
+  stock: integer("stock").notNull().default(0),
+  minStock: integer("min_stock").notNull().default(0),
+  active: boolean("active").notNull().default(true),
+  sortOrder: integer("sort_order").notNull().default(0),
+});
+
+export const boardingEvents = pgTable("boarding_events", {
+  id: bigserial("id", { mode: "number" }).primaryKey(),
+  boardingId: integer("boarding_id").notNull().references(() => boardingRequests.id),
+  actorId: integer("actor_id").references(() => users.id),
+  action: varchar("action", { length: 40 }).notNull(),
+  message: text("message"),
+  data: jsonb("data").$type<Record<string, unknown>>().notNull().default({}),
+  createdAt: ts("created_at").notNull().defaultNow(),
+});
+
+export const emailTemplates = pgTable("email_templates", {
+  key: varchar("key", { length: 60 }).primaryKey(),
+  name: varchar("name", { length: 120 }).notNull(),
+  subject: varchar("subject", { length: 200 }).notNull(),
+  body: text("body").notNull(),
+  active: boolean("active").notNull().default(true),
+  updatedAt: ts("updated_at").notNull().defaultNow(),
+});
+
+export const emailQueue = pgTable("email_queue", {
+  id: bigserial("id", { mode: "number" }).primaryKey(),
+  toEmail: varchar("to_email", { length: 255 }).notNull(),
+  subject: varchar("subject", { length: 255 }).notNull(),
+  html: text("html").notNull(),
+  template: varchar("template", { length: 60 }),
+  userId: integer("user_id").references(() => users.id),
+  status: varchar("status", { length: 12 }).notNull().default("in_coda"),
+  attempts: integer("attempts").notNull().default(0),
+  nextAttemptAt: ts("next_attempt_at").notNull().defaultNow(),
+  lastError: text("last_error"),
+  providerId: varchar("provider_id", { length: 255 }),
+  dedupeKey: varchar("dedupe_key", { length: 160 }),
+  createdAt: ts("created_at").notNull().defaultNow(),
+  sentAt: ts("sent_at"),
+});
+
+export const pushLog = pgTable("push_log", {
+  id: bigserial("id", { mode: "number" }).primaryKey(),
+  userId: integer("user_id").references(() => users.id),
+  title: varchar("title", { length: 160 }).notNull(),
+  status: varchar("status", { length: 12 }).notNull(),
+  error: text("error"),
   createdAt: ts("created_at").notNull().defaultNow(),
 });
 

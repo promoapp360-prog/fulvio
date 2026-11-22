@@ -35,7 +35,7 @@ export default function Agenda() {
   return (
     <div>
       <PageTitle title="Agenda" subtitle={view === "giorno" ? `${WEEKDAYS[weekdayISO(day)]} ${fmtDay(day)}` : `${fmtDay(r.from)} – ${fmtDay(r.to)}`}>
-        {can(me ?? null, "richieste") && <button className="btn-primary btn-sm" onClick={() => setCreating(true)}><Plus size={14} /> Nuovo appuntamento</button>}
+        {can(me ?? null, "agenda_edit") && <button className="btn-primary btn-sm" onClick={() => setCreating(true)}><Plus size={14} /> Nuovo appuntamento</button>}
       </PageTitle>
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <Tabs value={view} onChange={setView} items={[{ value: "giorno", label: "Giorno" }, { value: "settimana", label: "Settimana" }, { value: "mese", label: "Mese" }]} />
@@ -210,12 +210,12 @@ export function Requests() {
   const params = new URLSearchParams(window.location.search);
   const [status, setStatus] = useState("aperte");
   const [open, setOpen] = useState<number | null>(params.get("id") ? Number(params.get("id")) : null);
-  const { data, isLoading } = useQuery<any[]>({ queryKey: ["requests", status], queryFn: () => get(`/api/admin/requests?status=${status}`), refetchInterval: 120_000 });
+  const { data, isLoading } = useQuery<any[]>({ queryKey: ["requests", status], queryFn: () => get(`/api/admin/requests?status=${status}`), enabled: status !== "storico", refetchInterval: 120_000 });
   return (
     <div>
       <PageTitle title="Richieste di prenotazione" subtitle="Nessuna richiesta diventa definitiva senza la tua conferma" />
-      <Tabs value={status} onChange={setStatus} items={[{ value: "aperte", label: "Da gestire" }, { value: "confermata", label: "Confermate" }, { value: "rifiutata", label: "Rifiutate" }, { value: "annullata", label: "Annullate" }]} />
-      {isLoading ? <Spinner /> : !data?.length ? <Empty>Nessuna richiesta.</Empty> : (
+      <Tabs value={status} onChange={setStatus} items={[{ value: "aperte", label: "Da gestire" }, { value: "confermata", label: "Confermate" }, { value: "rifiutata", label: "Rifiutate" }, { value: "storico", label: "Annullamenti e assenze" }]} />
+      {status === "storico" ? <Cancellations onOpen={setOpen} /> : isLoading ? <Spinner /> : !data?.length ? <Empty>Nessuna richiesta.</Empty> : (
         <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
           <table className="table-dp"><thead><tr><th>Quando</th><th>Cliente</th><th>Cane</th><th>Servizio</th><th>Operatore</th><th>Stato</th><th>Ricevuta</th></tr></thead>
             <tbody>{data.map((a) => (
@@ -227,6 +227,28 @@ export function Requests() {
         </div>
       )}
       <AppointmentDetail id={open} onClose={() => setOpen(null)} />
+    </div>
+  );
+}
+
+function Cancellations({ onOpen }: { onOpen: (id: number) => void }) {
+  const [from, setFrom] = useState(addDaysISO(todayISO(), -30));
+  const [to, setTo] = useState(addDaysISO(todayISO(), 60));
+  const { data, isLoading } = useQuery<any[]>({ queryKey: ["cancellations", from, to], queryFn: () => get(`/api/admin/cancellations?from=${from}&to=${to}`) });
+  return (
+    <div>
+      <div className="mb-3 flex gap-2"><input type="date" className="input w-40" value={from} onChange={(e) => setFrom(e.target.value)} aria-label="Dal" /><input type="date" className="input w-40" value={to} onChange={(e) => setTo(e.target.value)} aria-label="Al" /></div>
+      {isLoading ? <Spinner /> : !data?.length ? <Empty>Nessun annullamento o assenza nel periodo.</Empty> : (
+        <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
+          <table className="table-dp"><thead><tr><th>Appuntamento</th><th>Cliente</th><th>Cane</th><th>Stato</th><th>Motivo</th><th>Da</th></tr></thead>
+            <tbody>{data.map((a) => (
+              <tr key={a.id} className="cursor-pointer hover:bg-brand-sky" onClick={() => onOpen(a.id)}>
+                <td className="font-bold">{fmtDateTime(a.startAt)}</td><td>{a.customerName}</td><td>{a.dogName}</td><td><StatusBadge status={a.status} /></td>
+                <td>{a.cancelReason || "—"}{a.lateCancel && <span className="badge ml-1 bg-amber-100 text-amber-800">oltre il termine</span>}</td><td className="text-xs">{a.cancelledBy || "—"}{a.cancelledAt && <span className="block text-slate-500">{fmtDateTime(a.cancelledAt)}</span>}</td>
+              </tr>
+            ))}</tbody></table>
+        </div>
+      )}
     </div>
   );
 }

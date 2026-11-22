@@ -18,7 +18,32 @@ export const DEFAULT_SETTINGS = {
     onlineEnabled: false,     // si attiva solo con STRIPE_SECRET_KEY impostata
     customMethods: [] as string[],
   },
-  loyalty: { enabled: true, pointsPerEuro: 1, welcomePoints: 10, birthdayPoints: 20 },
+  loyalty: {
+    enabled: true,
+    pointsPerEuro: 1,              // rapporto euro/punti
+    welcomePoints: 0,
+    birthdayPoints: 0,
+    earnOnServices: true,          // i singoli servizi/prodotti possono essere esclusi dalle loro schede
+    earnOnProducts: true,
+    pointValueCents: 0,            // valore di 1 punto per sconti/credito shop (0 = conversione disattivata finché non impostata)
+    minRedeemPoints: 0,
+    expiryMode: "nessuna" as "nessuna" | "annuale" | "fissa" | "periodo",
+    expiryFixedDate: "12-31",      // per scadenza fissa (MM-GG)
+    expiryDays: 365,               // per scadenza dopo un periodo
+  },
+  staff: { roundingStep: 15, roundingMode: "vicino" as "vicino" | "difetto" | "eccesso", payWeekday: 6 },
+  notifications: { reminderHours: 24, recallEnabled: true, recallDefaultDays: null as number | null },
+  cancellation: {
+    cancelHours: 24,               // il cliente può annullare da solo fino a N ore prima
+    rescheduleHours: 24,           // termine per chiedere uno spostamento
+    depositPolicy: "In caso di cancellazione oltre il termine l'acconto può essere trattenuto.",
+    reasons: ["Richiesta del cliente", "Cliente non disponibile", "Malattia del cane", "Indisponibilità operatore", "Chiusura straordinaria", "Altro"],
+  },
+  brand: {
+    logoUrl: "", logoWhiteUrl: "", heroImageUrl: "",
+    mascotWelcome: "", mascotGrooming: "", mascotSelfService: "", mascotBoarding: "", mascotShop: "", mascotFidelity: "",
+    bannerText: "", bannerUrl: "", bannerImageUrl: "", bannerActive: false,
+  },
   business: {
     ...BUSINESS,
     groomingHours: "Lunedì–Sabato 08:45–19:00 (su appuntamento)",
@@ -45,8 +70,15 @@ export const DEFAULT_SETTINGS = {
     gaMeasurementId: "",
     gtmId: "",
     metaPixelId: "",
+    searchConsoleVerification: "",
   },
-  shop: { pickupOnly: true, shippingCents: 0, freeShippingFromCents: 0 },
+  shop: {
+    pickupEnabled: true,
+    pickupInfo: "Ritiro gratuito in negozio negli orari di apertura.",
+    deliveryEnabled: false,
+    // zone servite: { name, caps: ["20063"], costCents, freeFromCents, eta, active }
+    deliveryZones: [] as { name: string; caps: string[]; costCents: number; freeFromCents?: number | null; eta?: string; active?: boolean }[],
+  },
   boarding: { dailyPriceCents: null as number | null, info: "Su richiesta, con disponibilità limitata." },
 };
 export type Settings = typeof DEFAULT_SETTINGS;
@@ -85,6 +117,9 @@ export async function publicSettings() {
     booking: { slotMinutes: s.booking.slotMinutes, maxDaysAhead: s.booking.maxDaysAhead, allowAnyOperator: s.booking.allowAnyOperator },
     loyalty: { enabled: s.loyalty.enabled, pointsPerEuro: s.loyalty.pointsPerEuro },
     shop: s.shop,
+    brand: s.brand,
+    cancellation: { cancelHours: s.cancellation.cancelHours, rescheduleHours: s.cancellation.rescheduleHours, depositPolicy: s.cancellation.depositPolicy },
+    loyaltyRules: { pointValueCents: s.loyalty.pointValueCents, minRedeemPoints: s.loyalty.minRedeemPoints, expiryMode: s.loyalty.expiryMode },
     boarding: s.boarding,
     pushPublicKey: process.env.VAPID_PUBLIC_KEY || null,
     onlinePayments: !!process.env.STRIPE_SECRET_KEY && s.payments.onlineEnabled,

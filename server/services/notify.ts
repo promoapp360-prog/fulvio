@@ -1,28 +1,31 @@
 import { eq, inArray, or } from "drizzle-orm";
 import { db } from "../db";
 import { notifications, users, type User } from "../../shared/schema";
-import { sendEmail, emailLayout, p } from "./email";
+import { sendTemplate } from "./email";
 import { pushToUsers } from "./push";
 
-/** Notifica un utente: in-app sempre, push ed email secondo le sue preferenze. */
-export async function notifyUser(user: User, msg: { title: string; body: string; url?: string; email?: boolean; template?: string }) {
+/**
+ * Notifica un utente: notifica in-app sempre, email come canale principale (se attiva nelle preferenze), push in aggiunta.
+ * template = chiave del template email personalizzabile; vars = segnaposto.
+ */
+export async function notifyUser(user: User, msg: { title: string; body: string; url?: string; template?: string; vars?: Record<string, any>; email?: boolean; dedupeKey?: string }) {
   await db.insert(notifications).values({ userId: user.id, title: msg.title, body: msg.body, url: msg.url });
   if (user.commPush) await pushToUsers([user.id], { title: msg.title, body: msg.body, url: msg.url });
-  if (msg.email !== false && user.commEmail) {
+  if (msg.email !== false && user.commEmail && msg.template) {
     const base = process.env.PUBLIC_URL || "";
-    await sendEmail(user.email, msg.title, emailLayout(msg.title, p(msg.body), msg.url ? { label: "Apri Dog's Planet", url: base + msg.url } : undefined), msg.template);
+    await sendTemplate(msg.template, user.email, { nome: user.firstName, ...(msg.vars || {}) }, { userId: user.id, dedupeKey: msg.dedupeKey, cta: msg.url ? { label: "Apri Dog's Planet", url: base + msg.url } : undefined });
   }
 }
 
-/** Notifica lo staff amministrativo (admin + staff con permesso indicato). */
+/** Notifica lo staff (admin + utenti con il permesso indicato): in-app e push; email solo agli admin. */
 export async function notifyStaff(perm: string, msg: { title: string; body: string; url?: string }) {
-  const staff = await db.select().from(users).where(or(eq(users.role, "admin"), inArray(users.role, ["staff"])));
+  const staff = await db.select().from(users).where(or(eq(users.role, "admin"), inArray(users.role, ["manager", "operator"])));
   const targets = staff.filter((u) => u.active && (u.role === "admin" || (u.permissions || []).includes(perm)));
   if (!targets.length) return;
   await db.insert(notifications).values(targets.map((u) => ({ userId: u.id, title: msg.title, body: msg.body, url: msg.url })));
   await pushToUsers(targets.map((u) => u.id), msg);
   const base = process.env.PUBLIC_URL || "";
   for (const u of targets.filter((t) => t.role === "admin" && t.commEmail)) {
-    await sendEmail(u.email, msg.title, emailLayout(msg.title, p(msg.body), msg.url ? { label: "Apri il gestionale", url: base + msg.url } : undefined), "staff");
+    await sendTemplate("comunicazione", u.email, { oggetto: msg.title, messaggio: msg.body }, { userId: u.id, cta: msg.url ? { label: "Apri il gestionale", url: base + msg.url } : undefined });
   }
 }

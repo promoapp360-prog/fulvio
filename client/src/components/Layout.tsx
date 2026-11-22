@@ -3,8 +3,7 @@ import { Link, useLocation } from "wouter";
 import { Menu, X, Phone, MessageCircle, Mail, MapPin, User, Navigation } from "lucide-react";
 import { Logo, BookingButton } from "./brand";
 import { useMe, isStaffRole } from "@/lib/auth";
-import { usePublicSettings } from "@/lib/settings";
-import { BUSINESS, fullAddress, googleMapsUrl, appleMapsUrl } from "@shared/constants";
+import { useBusiness, usePublicSettings } from "@/lib/settings";
 import CookieBanner from "./CookieBanner";
 import InstallPrompt from "./InstallPrompt";
 
@@ -24,6 +23,7 @@ export function PublicLayout({ children }: { children: React.ReactNode }) {
   const [loc] = useLocation();
   const { data: me } = useMe();
   const { data: s } = usePublicSettings();
+  const B = useBusiness();
   useEffect(() => { setOpen(false); window.scrollTo(0, 0); }, [loc]);
   const announcement = s?.site?.announcement;
 
@@ -64,9 +64,9 @@ export function PublicLayout({ children }: { children: React.ReactNode }) {
       <Footer />
       {/* barra azioni rapide su smartphone */}
       <div className="sticky bottom-0 z-30 grid grid-cols-3 border-t border-sky-100 bg-white text-xs font-bold text-brand-navy md:hidden">
-        <a href={`tel:${BUSINESS.phoneIntl}`} className="flex flex-col items-center gap-0.5 py-2"><Phone size={18} />Chiama</a>
-        <a href={`https://wa.me/${BUSINESS.whatsapp}`} target="_blank" rel="noreferrer" className="flex flex-col items-center gap-0.5 py-2"><MessageCircle size={18} />WhatsApp</a>
-        <a href={googleMapsUrl} target="_blank" rel="noreferrer" className="flex flex-col items-center gap-0.5 py-2"><Navigation size={18} />Naviga</a>
+        <a href={`tel:${B.phoneIntl}`} className="flex flex-col items-center gap-0.5 py-2"><Phone size={18} />Chiama</a>
+        <a href={`https://wa.me/${B.whatsapp}`} target="_blank" rel="noreferrer" className="flex flex-col items-center gap-0.5 py-2"><MessageCircle size={18} />WhatsApp</a>
+        <a href={B.googleMapsUrl} target="_blank" rel="noreferrer" className="flex flex-col items-center gap-0.5 py-2"><Navigation size={18} />Naviga</a>
       </div>
       <CookieBanner />
       <InstallPrompt />
@@ -76,6 +76,7 @@ export function PublicLayout({ children }: { children: React.ReactNode }) {
 
 export function Footer() {
   const { data: s } = usePublicSettings();
+  const B = useBusiness();
   return (
     <footer className="bg-brand-navy text-white">
       <div className="container-dp grid gap-8 py-12 md:grid-cols-4">
@@ -86,10 +87,10 @@ export function Footer() {
         <div>
           <h3 className="mb-3 font-display text-sm font-bold uppercase tracking-wider text-[#3fd5e4]">Contatti</h3>
           <ul className="space-y-2 text-sm">
-            <li><a className="flex items-center gap-2 hover:underline" href={`tel:${BUSINESS.phoneIntl}`}><Phone size={16} /> {BUSINESS.phone}</a></li>
-            <li><a className="flex items-center gap-2 hover:underline" href={`https://wa.me/${BUSINESS.whatsapp}`} target="_blank" rel="noreferrer"><MessageCircle size={16} /> WhatsApp</a></li>
-            <li><a className="flex items-center gap-2 break-all hover:underline" href={`mailto:${BUSINESS.email}`}><Mail size={16} /> {BUSINESS.email}</a></li>
-            <li className="flex items-start gap-2"><MapPin size={16} className="mt-0.5 shrink-0" /> {fullAddress}</li>
+            <li><a className="flex items-center gap-2 hover:underline" href={`tel:${B.phoneIntl}`}><Phone size={16} /> {B.phone}</a></li>
+            <li><a className="flex items-center gap-2 hover:underline" href={`https://wa.me/${B.whatsapp}`} target="_blank" rel="noreferrer"><MessageCircle size={16} /> WhatsApp</a></li>
+            <li><a className="flex items-center gap-2 break-all hover:underline" href={`mailto:${B.email}`}><Mail size={16} /> {B.email}</a></li>
+            <li className="flex items-start gap-2"><MapPin size={16} className="mt-0.5 shrink-0" /> {B.fullAddress}</li>
           </ul>
         </div>
         <div>
@@ -97,8 +98,8 @@ export function Footer() {
           <p className="text-sm"><strong>Toelettatura</strong><br />{s?.business?.groomingHours || "Su appuntamento"}</p>
           <p className="mt-3 text-sm"><strong>Self-Service</strong><br />{s?.selfservice?.days || "Tutti i giorni, 365 giorni all'anno"}<br />{s?.selfservice?.hours || "08:00–22:00"}</p>
           <div className="mt-3 flex gap-3 text-sm">
-            <a href={googleMapsUrl} target="_blank" rel="noreferrer" className="underline">Google Maps</a>
-            <a href={appleMapsUrl} target="_blank" rel="noreferrer" className="underline">Apple Maps</a>
+            <a href={B.googleMapsUrl} target="_blank" rel="noreferrer" className="underline">Google Maps</a>
+            <a href={B.appleMapsUrl} target="_blank" rel="noreferrer" className="underline">Apple Maps</a>
           </div>
         </div>
         <div>
@@ -107,6 +108,7 @@ export function Footer() {
             <li><Link href="/privacy-policy" className="hover:underline">Privacy Policy</Link></li>
             <li><Link href="/cookie-policy" className="hover:underline">Cookie Policy</Link></li>
             <li><Link href="/condizioni-del-servizio" className="hover:underline">Condizioni del servizio</Link></li>
+            <li><Link href="/installa-app" className="hover:underline">Installa l'app sul telefono</Link></li>
             <li><button className="hover:underline" onClick={() => window.dispatchEvent(new Event("dp-cookie-open"))}>Preferenze cookie</button></li>
             {s?.site?.socialInstagram && <li><a href={s.site.socialInstagram} target="_blank" rel="noreferrer" className="hover:underline">Instagram</a></li>}
             {s?.site?.socialFacebook && <li><a href={s.site.socialFacebook} target="_blank" rel="noreferrer" className="hover:underline">Facebook</a></li>}

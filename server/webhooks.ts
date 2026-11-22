@@ -4,7 +4,7 @@ import { db } from "./db";
 import { payments, appointments, orders, users } from "../shared/schema";
 import { verifyStripeSignature } from "./services/payments";
 import { logEvent, paidTotal } from "./services/appointments";
-import { commitOrderStock } from "./routes/admin/shop";
+import { commitStock } from "./services/shop";
 import { notifyUser, notifyStaff } from "./services/notify";
 
 const r = Router();
@@ -47,7 +47,7 @@ async function handlePaid(sessionId: string, amountTotal: number, meta: Record<s
     }
     if (p.orderId) {
       await tx.update(orders).set({ status: "pagato", updatedAt: new Date() }).where(and(eq(orders.id, p.orderId), eq(orders.status, "in_attesa")));
-      await commitOrderStock(tx, p.orderId, null);
+      await commitStock(tx, p.orderId, null);
     }
     return p;
   });

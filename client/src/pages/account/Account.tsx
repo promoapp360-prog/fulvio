@@ -10,7 +10,7 @@ import { useMe, useLogout } from "@/lib/auth";
 import { usePublicSettings } from "@/lib/settings";
 import { fmtLong, fmtDate, fmtDay, fmtDateTime, todayISO } from "@/lib/format";
 import { enablePush, pushSupported } from "@/lib/push";
-import { euro, SIZE_LABELS, PAYMENT_METHODS, PAYMENT_KINDS, ORDER_STATUS, BOARDING_STATUS, STATUS_COLORS } from "@shared/constants";
+import { euro, SIZE_LABELS, PAYMENT_METHODS, PAYMENT_KINDS, ORDER_STATUS, BOARDING_STATUS, STATUS_COLORS, LOYALTY_KINDS } from "@shared/constants";
 
 const NAV = [
   { href: "/account", label: "Panoramica", icon: Home },
@@ -37,6 +37,7 @@ export default function AccountArea() {
         <div><p className="text-sm text-slate-500">Area personale</p><h1 className="text-2xl font-extrabold">Ciao {me.firstName}!</h1></div>
         <BookingButton />
       </div>
+      {!me.emailVerifiedAt && <VerifyBanner />}
       <div className="grid gap-6 lg:grid-cols-[220px_1fr]">
         <nav className="-mx-4 flex gap-1 overflow-x-auto px-4 lg:mx-0 lg:flex-col lg:px-0" aria-label="Area personale">
           {NAV.map((n) => (
@@ -58,6 +59,16 @@ export default function AccountArea() {
           </Switch>
         </div>
       </div>
+    </div>
+  );
+}
+
+function VerifyBanner() {
+  const toast = useToast();
+  return (
+    <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-amber-50 p-3 text-sm text-amber-900">
+      <span>Conferma il tuo indirizzo email: ti abbiamo inviato un link al momento della registrazione.</span>
+      <button className="btn-outline btn-sm" onClick={async () => { try { await post("/api/auth/resend-verification"); toast("Email di verifica inviata"); } catch (e: any) { toast(e.message, "err"); } }}>Invia di nuovo</button>
     </div>
   );
 }
@@ -98,8 +109,10 @@ function Appointments() {
   const params = new URLSearchParams(window.location.search);
   useEffect(() => { if (params.get("pagamento") === "ok") toast("Pagamento completato: la conferma arriverà a breve"); }, []); // eslint-disable-line
 
-  const act = async (id: number, action: string) => {
-    try { await post(`/api/account/appointments/${id}/action`, { action }); qc.invalidateQueries({ queryKey: ["acc-apps"] }); toast("Fatto"); } catch (e: any) { toast(e.message, "err"); }
+  const { data: ps } = usePublicSettings();
+  const cancelHours = ps?.cancellation?.cancelHours ?? 24;
+  const act = async (id: number, action: string, reason?: string) => {
+    try { await post(`/api/account/appointments/${id}/action`, { action, reason }); qc.invalidateQueries({ queryKey: ["acc-apps"] }); toast("Fatto"); } catch (e: any) { toast(e.message, "err"); }
   };
   const pay = async (id: number) => { try { const r = await post(`/api/account/appointments/${id}/pay`); window.location.href = r.url; } catch (e: any) { toast(e.message, "err"); } };
   const sendChange = async () => {
@@ -135,10 +148,15 @@ function Appointments() {
       <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-slate-500">
         {(a.finalPriceCents ?? a.estimatedPriceCents) != null && <span>Prezzo {a.finalPriceCents != null ? "" : "indicativo "}{euro(a.finalPriceCents ?? a.estimatedPriceCents)}</span>}
         {a.changeRequest && <span className="badge bg-amber-100 text-amber-800">Richiesta inviata: {a.changeRequest}</span>}
+        {a.cancelReason && a.status === "annullata" && <span>Motivo: {a.cancelReason}</span>}
+        {a.treatmentNotes && a.status === "completata" && <span className="block w-full">Note del trattamento: {a.treatmentNotes}</span>}
       </div>
       {upcoming.includes(a) && (
         <div className="mt-3 flex flex-wrap gap-2">
           {["richiesta", "in_valutazione"].includes(a.status) && <button className="btn-outline btn-sm" onClick={() => confirm("Ritirare la richiesta?") && act(a.id, "annulla")}>Ritira richiesta</button>}
+          {["confermata", "attesa_pagamento"].includes(a.status) && (new Date(a.startAt).getTime() - Date.now()) / 3600_000 >= cancelHours && (
+            <button className="btn-outline btn-sm" onClick={() => { const r = prompt(`Vuoi annullare l'appuntamento? ${ps?.cancellation?.depositPolicy || ""}\nMotivo (facoltativo):`); if (r !== null) act(a.id, "annulla", r || undefined); }}>Annulla appuntamento</button>
+          )}
           {["confermata", "attesa_pagamento", "proposta"].includes(a.status) && <button className="btn-outline btn-sm" onClick={() => { setChangeFor(a); setMsg({ kind: "modifica", message: "" }); }}>Chiedi modifica o cancellazione</button>}
         </div>
       )}
@@ -146,6 +164,7 @@ function Appointments() {
   );
   return (
     <div className="space-y-6">
+      <p className="text-xs text-slate-500">Puoi annullare on line fino a {cancelHours} ore prima dell'appuntamento; dopo, invia una richiesta al salone. {ps?.cancellation?.depositPolicy}</p>
       <section><h2 className="mb-3 text-xl font-bold">In programma</h2>{upcoming.length ? <div className="space-y-3">{upcoming.map((a) => <Card key={a.id} a={a} />)}</div> : <Empty>Nessun appuntamento in programma.</Empty>}</section>
       <section><h2 className="mb-3 text-xl font-bold">Storico trattamenti</h2>
         <div className="overflow-x-auto"><table className="table-dp"><thead><tr><th>Data</th><th>Cane</th><th>Servizio</th><th>Operatore</th><th>Stato</th></tr></thead>
@@ -214,7 +233,11 @@ function Loyalty() {
         <p className="mt-4 font-mono text-lg tracking-widest">{data.card.code.replace(/(.{2})(.{4})(.{4})/, "$1 $2 $3")}</p>
         <Mascot kind="fidelity" className="absolute -bottom-2 right-2 h-32 opacity-95" />
       </div>
-      <p className="text-sm text-slate-600">Mostra il codice in negozio per accumulare o usare i punti.</p>
+      <p className="text-sm text-slate-600">Mostra il codice in negozio per accumulare o usare i punti. Ogni euro speso vale {data.rules.pointsPerEuro} punt{data.rules.pointsPerEuro === 1 ? "o" : "i"}{data.rules.pointValueCents > 0 && <> · 1 punto = {euro(data.rules.pointValueCents)} di sconto (nello shop o sui servizi)</>}.</p>
+      {data.expiries.length > 0 && (
+        <div className="card"><h2 className="mb-2 font-bold">Prossime scadenze</h2>
+          <ul className="text-sm">{data.expiries.map((e: any) => <li key={e.expiresAt}><b>{e.points} punti</b> scadono il {fmtDate(e.expiresAt)}</li>)}</ul></div>
+      )}
       {data.rewards.length > 0 && (
         <section><h2 className="mb-3 text-xl font-bold">Premi disponibili</h2>
           <div className="grid gap-3 sm:grid-cols-2">{data.rewards.map((r: any) => (
@@ -223,7 +246,7 @@ function Loyalty() {
         </section>
       )}
       <section><h2 className="mb-3 text-xl font-bold">Movimenti</h2>
-        {data.transactions.length ? <table className="table-dp"><tbody>{data.transactions.map((t: any) => <tr key={t.id}><td>{fmtDate(t.createdAt)}</td><td>{t.reason}</td><td className={`text-right font-bold ${t.points > 0 ? "text-green-700" : "text-red-600"}`}>{t.points > 0 ? "+" : ""}{t.points}</td></tr>)}</tbody></table> : <Empty>Nessun movimento.</Empty>}
+        {data.transactions.length ? <table className="table-dp"><tbody>{data.transactions.map((t: any) => <tr key={t.id}><td>{fmtDate(t.createdAt)}</td><td><span className="badge mr-1 bg-slate-100">{LOYALTY_KINDS[t.kind]}</span>{t.reason}{t.expiresAt && t.remaining > 0 && <span className="block text-xs text-slate-500">scade il {fmtDate(t.expiresAt)}</span>}</td><td className={`text-right font-bold ${t.points > 0 ? "text-green-700" : t.points < 0 ? "text-red-600" : ""}`}>{t.points > 0 ? "+" : ""}{t.points}</td></tr>)}</tbody></table> : <Empty>Nessun movimento.</Empty>}
       </section>
     </div>
   );
@@ -235,11 +258,14 @@ function Boarding() {
   const { data: s } = usePublicSettings();
   const { data: dogs } = useQuery<any[]>({ queryKey: ["my-dogs"], queryFn: () => get("/api/account/dogs") });
   const { data, isLoading } = useQuery<any[]>({ queryKey: ["acc-boarding"], queryFn: () => get("/api/account/boarding") });
-  const [f, setF] = useState({ dogId: 0, startDate: "", endDate: "", customerNotes: "" });
+  const [f, setF] = useState({ dogId: 0, startDate: "", endDate: "", needs: "", customerNotes: "" });
   const [err, setErr] = useState<unknown>(null);
+  const reply = async (id: number, action: string, message?: string) => {
+    try { await post(`/api/account/boarding/${id}/reply`, { action, message }); toast("Risposta inviata"); qc.invalidateQueries({ queryKey: ["acc-boarding"] }); } catch (e: any) { toast(e.message, "err"); }
+  };
   const submit = async (e: React.FormEvent) => {
     e.preventDefault(); setErr(null);
-    try { await post("/api/account/boarding", { ...f, dogId: Number(f.dogId), customerNotes: f.customerNotes || null }); toast("Richiesta inviata. Ti ricontatteremo per la conferma."); setF({ dogId: 0, startDate: "", endDate: "", customerNotes: "" }); qc.invalidateQueries({ queryKey: ["acc-boarding"] }); }
+    try { await post("/api/account/boarding", { ...f, dogId: Number(f.dogId), needs: f.needs || null, customerNotes: f.customerNotes || null }); toast("Richiesta inviata. Ti ricontatteremo per la conferma."); setF({ dogId: 0, startDate: "", endDate: "", needs: "", customerNotes: "" }); qc.invalidateQueries({ queryKey: ["acc-boarding"] }); }
     catch (x) { setErr(x); }
   };
   if (isLoading) return <Spinner />;
@@ -254,7 +280,8 @@ function Boarding() {
             <Field label="Dal"><input type="date" className="input" required min={todayISO()} value={f.startDate} onChange={(e) => setF({ ...f, startDate: e.target.value })} /></Field>
             <Field label="Al"><input type="date" className="input" required min={f.startDate || todayISO()} value={f.endDate} onChange={(e) => setF({ ...f, endDate: e.target.value })} /></Field>
           </div>
-          <Field label="Note (abitudini, alimentazione, farmaci…)"><textarea className="input" value={f.customerNotes} onChange={(e) => setF({ ...f, customerNotes: e.target.value })} /></Field>
+          <Field label="Esigenze (alimentazione, abitudini, uscite…)"><textarea className="input" value={f.needs} onChange={(e) => setF({ ...f, needs: e.target.value })} /></Field>
+          <Field label="Note"><textarea className="input" value={f.customerNotes} onChange={(e) => setF({ ...f, customerNotes: e.target.value })} /></Field>
           <ErrorBox error={err} />
           <button className="btn-primary" disabled={!f.dogId}>Invia richiesta</button>
         </form>
@@ -262,8 +289,13 @@ function Boarding() {
       <section><h2 className="mb-3 text-xl font-bold">Le tue richieste</h2>
         {data?.length ? <div className="space-y-2">{data.map(({ b, dogName }) => (
           <div key={b.id} className="card flex flex-wrap items-center justify-between gap-2">
-            <div><p className="font-bold">{dogName}: {fmtDay(b.startDate)} → {fmtDay(b.endDate)}</p>{b.priceCents != null && <p className="text-sm">Prezzo {euro(b.priceCents)}</p>}</div>
-            <div className="flex items-center gap-2"><StatusBadge status={b.status} labels={BOARDING_STATUS} colors={{ richiesta: "#F59E0B", confermata: "#00B6C8", rifiutata: "#EF4444", in_corso: "#2E8DE6", completata: "#16A34A", annullata: "#9CA3AF" }} />
+            <div><p className="font-bold">{dogName}: {fmtDay(b.startDate)} → {fmtDay(b.endDate)}</p>{b.priceCents != null && <p className="text-sm">Prezzo {euro(b.priceCents)}</p>}
+              {b.lastMessage && <p className="text-sm text-slate-600">Messaggio del salone: {b.lastMessage}</p>}
+              {b.status === "proposta" && <div className="mt-2 rounded-xl bg-pink-50 p-2 text-sm">Nuove date proposte: <b>{fmtDay(b.proposedStart)} → {fmtDay(b.proposedEnd)}</b>
+                <div className="mt-1 flex gap-2"><button className="btn-primary btn-sm" onClick={() => reply(b.id, "accetta_date")}>Accetta</button><button className="btn-outline btn-sm" onClick={() => reply(b.id, "rifiuta_date")}>Rifiuta</button></div></div>}
+              {b.status === "info_richieste" && <button className="btn-outline btn-sm mt-2" onClick={() => { const m = prompt("Rispondi al salone:"); if (m) reply(b.id, "rispondi", m); }}>Rispondi</button>}
+            </div>
+            <div className="flex items-center gap-2"><StatusBadge status={b.status} labels={BOARDING_STATUS} colors={{ richiesta: "#F59E0B", info_richieste: "#8B5CF6", proposta: "#EC4899", confermata: "#00B6C8", rifiutata: "#EF4444", in_corso: "#2E8DE6", completata: "#16A34A", annullata: "#9CA3AF" }} />
               {["richiesta", "confermata"].includes(b.status) && <button className="btn-ghost btn-sm" onClick={async () => { if (confirm("Annullare la richiesta?")) { await post(`/api/account/boarding/${b.id}/cancel`); qc.invalidateQueries({ queryKey: ["acc-boarding"] }); } }}>Annulla</button>}</div>
           </div>
         ))}</div> : <Empty>Nessuna richiesta.</Empty>}
@@ -319,7 +351,7 @@ function Profile() {
   const save = async (e: React.FormEvent) => {
     e.preventDefault(); setErr(null);
     try {
-      const fields = ["firstName", "lastName", "phone", "address", "city", "province", "cap", "country", "birthDate", "commEmail", "commPush", "commWhatsapp", "consentMarketing"];
+      const fields = ["firstName", "lastName", "phone", "address", "city", "province", "cap", "country", "birthDate", "commEmail", "commPush", "commWhatsapp", "commRecall", "consentMarketing"];
       const body = Object.fromEntries(fields.map((k) => [k, f[k] === "" ? null : f[k]]));
       const u = await patch("/api/account/profile", body); qc.setQueryData(["me"], u); toast("Profilo aggiornato");
     } catch (x) { setErr(x); }
@@ -343,14 +375,19 @@ function Profile() {
         <h3 className="pt-2 font-bold">Comunicazioni e privacy</h3>
         <Check checked={!!f.commEmail} onChange={(v) => setF({ ...f, commEmail: v })} label="Ricevi conferme e promemoria via email" />
         <Check checked={!!f.commPush} onChange={(v) => setF({ ...f, commPush: v })} label="Ricevi notifiche push sul dispositivo" />
-        <Check checked={!!f.commWhatsapp} onChange={(v) => setF({ ...f, commWhatsapp: v })} label="Possiamo contattarti su WhatsApp" />
+        <Check checked={!!f.commWhatsapp} onChange={(v) => setF({ ...f, commWhatsapp: v })} label="Possiamo contattarti su WhatsApp (solo contatti diretti, nessun invio automatico)" />
+        <Check checked={!!f.commRecall} onChange={(v) => setF({ ...f, commRecall: v })} label="Ricordami quando è il momento di un nuovo trattamento (richiamo periodico)" />
         <Check checked={!!f.consentMarketing} onChange={(v) => setF({ ...f, consentMarketing: v })} label="Acconsento a ricevere promozioni e novità (marketing)" />
         <ErrorBox error={err} />
         <button className="btn-primary">Salva</button>
       </form>
       <div className="card space-y-3">
         <h2 className="text-xl font-bold">Notifiche su questo dispositivo</h2>
-        {pushSupported() ? <button className="btn-outline" onClick={async () => { try { await enablePush(); toast("Notifiche attivate"); } catch (e: any) { toast(e.message, "err"); } }}>Attiva notifiche push</button> : <p className="text-sm text-slate-500">Su iPhone installa prima l'app (Condividi → Aggiungi a Home) per ricevere le notifiche.</p>}
+        <p className="text-sm text-slate-600">Le notifiche push si aggiungono alle email. Su iPhone funzionano solo dopo aver aggiunto l'app alla schermata Home (<Link href="/installa-app" className="underline">istruzioni</Link>) e aver autorizzato le notifiche.</p>
+        <div className="flex flex-wrap gap-2">
+          {pushSupported() ? <button className="btn-outline" onClick={async () => { try { await enablePush(); toast("Notifiche attivate"); } catch (e: any) { toast(e.message, "err"); } }}>Attiva notifiche push</button> : <p className="text-sm text-amber-700">Questo browser non supporta le notifiche push: installa l'app sulla schermata Home.</p>}
+          <button className="btn-ghost" onClick={async () => { await post("/api/account/push/disable"); toast("Notifiche push disattivate su tutti i dispositivi"); }}>Disattiva su tutti i dispositivi</button>
+        </div>
       </div>
       <form className="card space-y-3" onSubmit={async (e) => { e.preventDefault(); try { await post("/api/auth/change-password", pw); toast("Password aggiornata"); setPw({ current: "", password: "" }); } catch (x: any) { toast(x.message, "err"); } }}>
         <h2 className="text-xl font-bold">Cambia password</h2>
@@ -360,6 +397,8 @@ function Profile() {
         </div>
         <button className="btn-outline">Aggiorna password</button>
       </form>
+      <div className="card"><h2 className="text-xl font-bold">Sicurezza</h2><p className="mt-1 text-sm text-slate-600">Chiudi l'accesso su tutti i dispositivi (ad esempio se hai usato un telefono non tuo).</p>
+        <button className="btn-outline mt-3" onClick={async () => { if (confirm("Uscire da tutti i dispositivi?")) { await post("/api/auth/logout-all"); window.location.href = "/login"; } }}>Esci da tutti i dispositivi</button></div>
       <div className="card"><h2 className="text-xl font-bold">I tuoi dati personali</h2><p className="mt-1 text-sm text-slate-600">Scarica una copia di tutti i dati che conserviamo su di te. Per la cancellazione dell'account scrivi a dogsplanetcernusco@gmail.com.</p><a href="/api/account/export" className="btn-outline mt-3">Scarica i miei dati</a></div>
     </div>
   );

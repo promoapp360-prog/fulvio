@@ -1,7 +1,11 @@
 import { Link } from "wouter";
+import { usePublicSettings } from "@/lib/settings";
 
-/** Logo ufficiale Dog's Planet (ricavato dal brand board approvato, non ridisegnato). */
+/** Logo ufficiale Dog's Planet (ricavato dal brand board approvato). Sostituibile dal gestionale (Contenuti → Logo e mascotte). */
 export function Logo({ className = "h-12", white = false }: { className?: string; white?: boolean }) {
+  const { data: s } = usePublicSettings();
+  const custom = white ? s?.brand?.logoWhiteUrl : s?.brand?.logoUrl;
+  if (custom) return <img src={custom} alt="Dog's Planet – Pet Grooming" className={`${className} w-auto`} />;
   return white
     ? <img src="/brand/logo-white.png" alt="Dog's Planet – Pet Grooming" className={`${className} w-auto`} />
     : (
@@ -13,9 +17,15 @@ export function Logo({ className = "h-12", white = false }: { className?: string
 }
 
 export type MascotKind = "welcome" | "toelettatura" | "self-service" | "pensione" | "pet-shop" | "fidelity";
+const OVERRIDE_KEY: Record<MascotKind, string> = {
+  welcome: "mascotWelcome", toelettatura: "mascotGrooming", "self-service": "mascotSelfService", pensione: "mascotBoarding", "pet-shop": "mascotShop", fidelity: "mascotFidelity",
+};
 
-/** Mascotte ufficiale: sempre lo stesso cane, nelle varianti del brand board. */
+/** Mascotte ufficiale: sempre lo stesso cane, nelle varianti del brand board (sostituibili dal gestionale). */
 export function Mascot({ kind, className = "h-32", alt }: { kind: MascotKind; className?: string; alt?: string }) {
+  const { data: s } = usePublicSettings();
+  const custom = s?.brand?.[OVERRIDE_KEY[kind]];
+  if (custom) return <img src={custom} alt={alt ?? "Mascotte Dog's Planet"} loading="lazy" className={`${className} w-auto object-contain`} />;
   return (
     <picture>
       <source srcSet={`/brand/mascotte-${kind}.webp`} type="image/webp" />

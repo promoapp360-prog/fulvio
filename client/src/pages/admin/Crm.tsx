@@ -6,10 +6,11 @@ import { PageTitle, Spinner, Empty, Pager, Modal, Field, Check, ErrorBox, Tabs, 
 import DogForm, { ageOf } from "@/components/DogForm";
 import ResourceManager from "@/components/ResourceManager";
 import { get, post, patch } from "@/lib/api";
+import { useMe, can } from "@/lib/auth";
 import { fmtDate, fmtDateTime, fmtDay } from "@/lib/format";
-import { euro, SIZE_LABELS, PAYMENT_KINDS, PAYMENT_METHODS, ORDER_STATUS, BOARDING_STATUS } from "@shared/constants";
+import { euro, SIZE_LABELS, SIZES, PAYMENT_KINDS, PAYMENT_METHODS, ORDER_STATUS, BOARDING_STATUS, LOYALTY_KINDS } from "@shared/constants";
 
-const emptyCustomer = { firstName: "", lastName: "", email: "", phone: "", address: "", city: "", province: "", cap: "", country: "Italia", birthDate: "", notes: "", consentPrivacy: true, consentMarketing: false, commEmail: true, commWhatsapp: false, active: true, sendInvite: false };
+const emptyCustomer = { firstName: "", lastName: "", email: "", phone: "", address: "", city: "", province: "", cap: "", country: "Italia", birthDate: "", notes: "", consentPrivacy: true, consentMarketing: false, commEmail: true, commWhatsapp: false, active: true, sendInvite: false, consentProof: "" };
 
 function CustomerForm({ initial, onDone }: { initial: any; onDone: () => void }) {
   const qc = useQueryClient();
@@ -49,6 +50,7 @@ function CustomerForm({ initial, onDone }: { initial: any; onDone: () => void })
         <Check checked={f.active} onChange={(v) => setF({ ...f, active: v })} label="Account attivo" />
         {!initial.id && <Check checked={f.sendInvite} onChange={(v) => setF({ ...f, sendInvite: v })} label="Invia email di benvenuto con accesso" />}
       </div>
+      {f.consentMarketing && !initial.consentMarketing && <Field label="Prova del consenso marketing *" hint="Es. modulo cartaceo firmato il 12/03/2026 – il consenso non va mai preselezionato"><input className="input" value={f.consentProof} onChange={(e) => setF({ ...f, consentProof: e.target.value })} /></Field>}
       <ErrorBox error={err} />
       <button className="btn-primary">Salva</button>
     </form>
@@ -59,14 +61,34 @@ export function Customers() {
   const [page, setPage] = useState(1);
   const [q, setQ] = useState("");
   const [creating, setCreating] = useState(false);
-  const { data, isLoading } = useQuery<any>({ queryKey: ["customers", page, q], queryFn: () => get(`/api/admin/customers?page=${page}&q=${encodeURIComponent(q)}`) });
+  const [tab, setTab] = useState("elenco");
+  const [flt, setFlt] = useState<Record<string, string>>({});
+  const qs = Object.entries(flt).filter(([, v]) => v).map(([k, v]) => `&${k}=${encodeURIComponent(v)}`).join("");
+  const { data, isLoading } = useQuery<any>({ queryKey: ["customers", page, q, qs], queryFn: () => get(`/api/admin/customers?page=${page}&q=${encodeURIComponent(q)}${qs}`) });
+  const { data: dups } = useQuery<any[]>({ queryKey: ["dups"], queryFn: () => get("/api/admin/customers/duplicates"), enabled: tab === "duplicati" });
+  const { data: svc } = useQuery<any[]>({ queryKey: ["admin-services"], queryFn: () => get("/api/admin/services").catch(() => []) });
   return (
     <div>
       <PageTitle title="Clienti e cani" subtitle={data ? `${data.total} clienti` : undefined}>
         <a href="/api/admin/customers/export.csv" className="btn-outline btn-sm"><Download size={14} /> Esporta CSV</a>
         <button className="btn-primary btn-sm" onClick={() => setCreating(true)}><Plus size={14} /> Nuovo cliente</button>
       </PageTitle>
-      <div className="relative mb-3 max-w-md"><Search size={16} className="absolute left-3 top-2.5 text-slate-400" /><input className="input pl-9" placeholder="Nome, telefono, email o nome del cane" value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }} /></div>
+      <Tabs value={tab} onChange={setTab} items={[{ value: "elenco", label: "Elenco e ricerca" }, { value: "duplicati", label: "Possibili duplicati" }]} />
+      {tab === "duplicati" ? (!dups ? <Spinner /> : !dups.length ? <Empty>Nessun possibile duplicato trovato.</Empty> : (
+        <div className="space-y-3">{dups.map((g) => (
+          <div key={g.key} className="card"><p className="mb-2 text-sm font-bold text-amber-700">{g.reason}</p>
+            <ul className="text-sm">{g.customers.map((c: any) => <li key={c.id}><Link href={`/admin/clienti/${c.id}`} className="font-bold text-brand-blue underline">{c.lastName} {c.firstName}</Link> · {c.email} · {c.phone || "—"} · dal {fmtDate(c.createdAt)}</li>)}</ul></div>
+        ))}<p className="text-xs text-slate-500">Verifica i dati e, se si tratta della stessa persona, disattiva l'anagrafica non più usata dopo aver spostato i cani.</p></div>
+      )) : <>
+      <div className="mb-3 flex flex-wrap gap-2">
+        <div className="relative w-full max-w-md"><Search size={16} className="absolute left-3 top-2.5 text-slate-400" /><input className="input pl-9" placeholder="Nome, telefono, email o nome del cane" value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }} /></div>
+        <select className="input w-40" value={flt.marketing || ""} onChange={(e) => { setFlt({ ...flt, marketing: e.target.value }); setPage(1); }}><option value="">Marketing: tutti</option><option value="si">Con consenso</option><option value="no">Senza consenso</option></select>
+        <select className="input w-36" value={flt.size || ""} onChange={(e) => { setFlt({ ...flt, size: e.target.value }); setPage(1); }}><option value="">Taglia cane</option>{SIZES.map((z) => <option key={z} value={z}>{SIZE_LABELS[z]}</option>)}</select>
+        <select className="input w-48" value={flt.serviceId || ""} onChange={(e) => { setFlt({ ...flt, serviceId: e.target.value }); setPage(1); }}><option value="">Servizio effettuato</option>{svc?.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select>
+        <input className="input w-36" type="number" min={1} placeholder="Inattivi da gg" value={flt.inactiveDays || ""} onChange={(e) => { setFlt({ ...flt, inactiveDays: e.target.value }); setPage(1); }} />
+        <input className="input w-36" type="number" min={1} placeholder="Min. visite/anno" value={flt.minVisits || ""} onChange={(e) => { setFlt({ ...flt, minVisits: e.target.value }); setPage(1); }} />
+        <input className="input w-36" placeholder="Comune" value={flt.city || ""} onChange={(e) => { setFlt({ ...flt, city: e.target.value }); setPage(1); }} />
+      </div>
       {isLoading ? <Spinner /> : !data?.rows?.length ? <Empty>Nessun cliente trovato.</Empty> : (
         <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
           <table className="table-dp"><thead><tr><th>Cliente</th><th>Contatti</th><th>Cani</th><th>Ultima visita</th><th>Marketing</th></tr></thead>
@@ -79,6 +101,7 @@ export function Customers() {
         </div>
       )}
       {data && <Pager page={page} pageSize={data.pageSize} total={data.total} onPage={setPage} />}
+      </>}
       <Modal open={creating} onClose={() => setCreating(false)} title="Nuovo cliente" wide><CustomerForm initial={{}} onDone={() => setCreating(false)} /></Modal>
     </div>
   );
@@ -116,8 +139,14 @@ export function CustomerDetail({ id }: { id: number }) {
         <div className="card"><p className="label">Indirizzo</p>{[c.address, c.cap, c.city, c.province].filter(Boolean).join(", ") || "—"}</div>
         <div className="card"><p className="label">Privacy</p>Privacy {c.consentPrivacy ? "✓" : "✗"} · Marketing {c.consentMarketing ? "✓" : "✗"}{c.birthDate && <><br />Nato/a il {fmtDay(c.birthDate)}</>}</div>
       </div>
-      {c.notes && <p className="mb-4 rounded-xl bg-amber-50 p-3 text-sm">{c.notes}</p>}
-      <Tabs value={tab} onChange={setTab} items={[{ value: "cani", label: `Cani (${data.dogs.length})` }, { value: "app", label: `Appuntamenti (${data.appointments.length})` }, { value: "pag", label: "Pagamenti" }, { value: "fid", label: "Fidelity" }, { value: "altro", label: "Pensione e ordini" }]} />
+      <div className="mb-4 grid gap-3 text-sm sm:grid-cols-3 lg:grid-cols-6">
+        {[["Visite", data.kpi.visits], ["Ultima visita", data.kpi.lastVisit ? fmtDate(data.kpi.lastVisit) : "—"], ["Frequenza", data.kpi.frequencyDays ? `ogni ${data.kpi.frequencyDays} gg` : "—"],
+          ["Spesa servizi", euro(data.kpi.spentServicesCents)], ["Spesa shop", euro(data.kpi.spentShopCents)], ["Annullati / assenze", `${data.kpi.cancellations} / ${data.kpi.noShows}`]].map(([l, v]) => (
+          <div key={l as string} className="card py-3"><p className="label">{l}</p><p className="font-bold text-brand-navy">{v}</p></div>))}
+      </div>
+      {data.upcoming.length > 0 && <div className="mb-4 rounded-xl bg-brand-sky p-3 text-sm"><b>Prossimi appuntamenti:</b> {data.upcoming.map((a: any) => `${fmtDateTime(a.startAt)} – ${a.serviceName}`).join(" · ")}</div>}
+      {c.notes && <p className="mb-4 rounded-xl bg-amber-50 p-3 text-sm"><b>Note interne:</b> {c.notes}</p>}
+      <Tabs value={tab} onChange={setTab} items={[{ value: "cani", label: `Cani (${data.dogs.length})` }, { value: "app", label: `Appuntamenti (${data.appointments.length})` }, { value: "pag", label: "Pagamenti" }, { value: "fid", label: "Fidelity" }, { value: "altro", label: "Pensione e ordini" }, { value: "com", label: "Comunicazioni" }, { value: "priv", label: "Privacy" }]} />
       {tab === "cani" && (
         <div>
           <button className="btn-primary btn-sm mb-3" onClick={() => setDog({})}><Plus size={14} /> Aggiungi cane</button>
@@ -125,7 +154,7 @@ export function CustomerDetail({ id }: { id: number }) {
             <div key={d.id} className={`card ${d.archived ? "opacity-60" : ""}`}>
               <div className="flex justify-between"><div><h3 className="text-lg font-bold">{d.name}{d.archived && " (archiviato)"}</h3><p className="text-sm text-slate-600">{d.breed || "—"} · {SIZE_LABELS[d.size]} {d.weightKg ? `· ${d.weightKg} kg` : ""} {d.birthDate ? `· ${ageOf(d.birthDate)}` : ""}</p></div>
                 <button className="btn-ghost btn-sm" onClick={() => setDog(d)}><Pencil size={14} /></button></div>
-              <div className="mt-2 flex flex-wrap gap-1">{d.coatKnots && <span className="badge bg-amber-100 text-amber-800">Nodi</span>}{d.coatShedding && <span className="badge bg-amber-100 text-amber-800">Muta</span>}{d.aggressive && <span className="badge bg-red-100 text-red-700">Aggressivo</span>}</div>
+              <div className="mt-2 flex flex-wrap gap-1">{d.recallDays && <span className="badge bg-sky-100 text-sky-800">Richiamo ogni {d.recallDays} gg</span>}{d.coatKnots && <span className="badge bg-amber-100 text-amber-800">Nodi</span>}{d.coatShedding && <span className="badge bg-amber-100 text-amber-800">Muta</span>}{d.aggressive && <span className="badge bg-red-100 text-red-700">Aggressivo</span>}</div>
               <dl className="mt-2 grid grid-cols-2 gap-x-3 text-xs text-slate-600">
                 {[["Pelo", d.coatType], ["Ultimo bagno", d.lastBath && fmtDay(d.lastBath)], ["Articolazioni", d.jointIssues], ["Dermatiti", d.dermatitis], ["Intolleranze", d.intolerances], ["Sensibilità", d.sensitivities], ["Altri animali", d.otherPets], ["Note", d.notes]].filter(([, v]) => v).map(([k, v]) => <div key={k as string}><dt className="font-bold">{k}</dt><dd>{v}</dd></div>)}
                 {Object.entries(d.customFields || {}).map(([k, v]) => <div key={k}><dt className="font-bold">{k}</dt><dd>{String(v)}</dd></div>)}
@@ -149,8 +178,21 @@ export function CustomerDetail({ id }: { id: number }) {
             <Field label="Motivo" className="flex-1"><input className="input" value={pts.reason} onChange={(e) => setPts({ ...pts, reason: e.target.value })} placeholder="Es. premio riscattato, bonus compleanno" /></Field>
             <button className="btn-primary" disabled={!pts.points || !pts.reason} onClick={adjust}>Applica</button>
           </div>
-          <table className="table-dp rounded-2xl bg-white"><tbody>{data.loyalty.transactions.map((t: any) => <tr key={t.id}><td>{fmtDate(t.createdAt)}</td><td>{t.reason}</td><td className="text-right font-bold">{t.points > 0 ? "+" : ""}{t.points}</td></tr>)}</tbody></table>
+          {data.loyalty.expiries.length > 0 && <p className="text-sm">Scadenze: {data.loyalty.expiries.map((e: any) => `${e.points} pt il ${fmtDate(e.expiresAt)}`).join(" · ")}</p>}
+          <table className="table-dp rounded-2xl bg-white"><tbody>{data.loyalty.transactions.map((t: any) => <tr key={t.id}><td>{fmtDate(t.createdAt)}</td><td><span className="badge mr-1 bg-slate-100">{LOYALTY_KINDS[t.kind]}</span>{t.reason}</td><td className="text-right font-bold">{t.points > 0 ? "+" : ""}{t.points}</td></tr>)}</tbody></table>
+          <p className="text-xs text-slate-500">Utilizzi, premi, proroghe e sconti sui servizi: sezione <Link href="/admin/fidelity" className="underline">Fidelity Card</Link>.</p>
         </div>
+      )}
+      {tab === "com" && (
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="card"><h3 className="mb-2 font-bold">Email</h3>{data.communications.emails.length ? <ul className="space-y-1 text-sm">{data.communications.emails.map((e: any) => <li key={e.id}>{fmtDateTime(e.createdAt)} · {e.subject} <span className="text-xs text-slate-500">({e.status})</span></li>)}</ul> : <p className="text-sm text-slate-500">Nessuna</p>}</div>
+          <div className="card"><h3 className="mb-2 font-bold">Notifiche</h3>{data.communications.notifications.length ? <ul className="space-y-1 text-sm">{data.communications.notifications.map((n: any) => <li key={n.id}>{fmtDateTime(n.createdAt)} · {n.title}</li>)}</ul> : <p className="text-sm text-slate-500">Nessuna</p>}</div>
+        </div>
+      )}
+      {tab === "priv" && (
+        <div className="card"><h3 className="mb-2 font-bold">Storico autorizzazioni</h3>
+          {data.consents.length ? <table className="table-dp"><thead><tr><th>Data</th><th>Tipo</th><th>Esito</th><th>Fonte</th><th>Versione</th><th>Prova</th></tr></thead>
+            <tbody>{data.consents.map((x: any) => <tr key={x.id}><td>{fmtDateTime(x.createdAt)}</td><td>{x.kind}</td><td>{x.granted ? "Concesso" : "Negato / revocato"}</td><td>{x.source}</td><td>{x.policyVersion || "—"}</td><td className="text-xs">{x.proof || "—"}</td></tr>)}</tbody></table> : <p className="text-sm text-slate-500">Nessuna registrazione.</p>}</div>
       )}
       {tab === "altro" && (
         <div className="grid gap-4 md:grid-cols-2">
@@ -160,14 +202,14 @@ export function CustomerDetail({ id }: { id: number }) {
       )}
       <Modal open={edit} onClose={() => setEdit(false)} title="Modifica cliente" wide><CustomerForm initial={c} onDone={() => setEdit(false)} /></Modal>
       <Modal open={!!dog} onClose={() => setDog(null)} title={dog?.id ? `Scheda di ${dog.name}` : "Nuovo cane"} wide>
-        {dog && <DogForm initial={dog.id ? dog : undefined} onSubmit={saveDog} onCancel={() => setDog(null)} fieldsUrl="/api/admin/dog-fields?pageSize=100" />}
+        {dog && <DogForm initial={dog.id ? dog : undefined} onSubmit={saveDog} onCancel={() => setDog(null)} adminExtras />}
         {dog?.id && <button className="btn-ghost btn-sm mt-2 text-slate-500" onClick={() => saveDog({ archived: !dog.archived })}>{dog.archived ? "Ripristina" : "Archivia"} scheda</button>}
       </Modal>
     </div>
   );
 }
 
-export function DogFields() {
+function DogFields() {
   return (
     <ResourceManager title="Campi personalizzati scheda cane" subtitle="Aggiungi informazioni alla scheda cane senza modificare il codice" endpoint="/api/admin/dog-fields"
       defaults={{ fieldType: "text", section: "altro", options: [], required: false, active: true, sortOrder: 0 }}
@@ -183,5 +225,51 @@ export function DogFields() {
       ]}
       columns={[{ key: "label", label: "Campo" }, { key: "fieldType", label: "Tipo" }, { key: "section", label: "Sezione" }, { key: "active", label: "Attivo", render: (r) => (r.active ? "✓" : "—") }]}
     />
+  );
+}
+
+/** Schede cani: ricerca dei cani e storico dei trattamenti con filtri ed esportazione (punto 15). */
+export function DogsPage() {
+  const [tab, setTab] = useState("cani");
+  const [q, setQ] = useState("");
+  const { data: me } = useMe();
+  const { data: dogs, isLoading } = useQuery<any[]>({ queryKey: ["dog-search", q], queryFn: () => get(`/api/admin/dogs?q=${encodeURIComponent(q)}`) });
+  const [f, setF] = useState<Record<string, string>>({});
+  const { data: svc } = useQuery<any[]>({ queryKey: ["admin-services"], queryFn: () => get("/api/admin/services").catch(() => []) });
+  const { data: ops } = useQuery<any[]>({ queryKey: ["admin-operators"], queryFn: () => get("/api/admin/operators").catch(() => []) });
+  const qs = Object.entries(f).filter(([, v]) => v).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&");
+  const { data: tr, isLoading: lt } = useQuery<any[]>({ queryKey: ["treatments", qs], queryFn: () => get(`/api/admin/treatments?${qs}`), enabled: tab === "storico" });
+  return (
+    <div>
+      <PageTitle title="Schede cani" subtitle="Anagrafiche dei cani e storico dei trattamenti" />
+      <Tabs value={tab} onChange={setTab} items={[{ value: "cani", label: "Cani" }, { value: "storico", label: "Storico trattamenti" }, ...(can(me ?? null, "impostazioni") ? [{ value: "campi", label: "Campi personalizzati" }] : [])]} />
+      {tab === "campi" && <DogFields />}
+      {tab === "cani" && <>
+        <div className="relative mb-3 max-w-md"><Search size={16} className="absolute left-3 top-2.5 text-slate-400" /><input className="input pl-9" placeholder="Nome o razza" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+        {isLoading ? <Spinner /> : !dogs?.length ? <Empty>Nessun cane trovato.</Empty> : (
+          <div className="overflow-x-auto rounded-2xl border bg-white"><table className="table-dp"><thead><tr><th>Cane</th><th>Razza</th><th>Taglia</th><th>Proprietario</th><th>Note</th><th /></tr></thead>
+            <tbody>{dogs.map((d) => <tr key={d.id}><td className="font-bold">{d.name}{d.aggressive && " ⚠"}</td><td>{d.breed || "—"}</td><td>{SIZE_LABELS[d.size]}</td><td><Link href={`/admin/clienti/${d.ownerId}`} className="text-brand-blue underline">{d.owner}</Link></td>
+              <td className="text-xs">{[d.coatKnots && "nodi", d.coatShedding && "muta", d.recallDays && `richiamo ${d.recallDays} gg`].filter(Boolean).join(" · ")}</td>
+              <td><button className="btn-outline btn-sm" onClick={() => { setF({ dogId: String(d.id) }); setTab("storico"); }}>Storico</button></td></tr>)}</tbody></table></div>
+        )}
+      </>}
+      {tab === "storico" && <>
+        <div className="mb-3 flex flex-wrap gap-2">
+          <input className="input w-48" placeholder="Cane, cliente o note" value={f.q || ""} onChange={(e) => setF({ ...f, q: e.target.value, dogId: "" })} />
+          <select className="input w-48" value={f.serviceId || ""} onChange={(e) => setF({ ...f, serviceId: e.target.value })}><option value="">Tutti i servizi</option>{svc?.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select>
+          <select className="input w-40" value={f.operatorId || ""} onChange={(e) => setF({ ...f, operatorId: e.target.value })}><option value="">Tutti gli operatori</option>{ops?.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}</select>
+          <input type="date" className="input w-40" value={f.from || ""} onChange={(e) => setF({ ...f, from: e.target.value })} aria-label="Dal" />
+          <input type="date" className="input w-40" value={f.to || ""} onChange={(e) => setF({ ...f, to: e.target.value })} aria-label="Al" />
+          {f.dogId && <button className="btn-ghost btn-sm" onClick={() => setF({ ...f, dogId: "" })}>Rimuovi filtro cane</button>}
+          <a className="btn-outline btn-sm" href={`/api/admin/treatments?${qs}&format=xlsx`}><Download size={14} /> Excel</a>
+          <a className="btn-outline btn-sm" href={`/api/admin/treatments?${qs}&format=pdf`}><Download size={14} /> PDF</a>
+        </div>
+        {lt ? <Spinner /> : !tr?.length ? <Empty>Nessun trattamento trovato.</Empty> : (
+          <div className="overflow-x-auto rounded-2xl border bg-white"><table className="table-dp"><thead><tr><th>Data</th><th>Cane</th><th>Cliente</th><th>Servizio</th><th>Operatore</th><th>Durata</th><th>Prezzo</th><th>Pagamento</th><th>Note</th></tr></thead>
+            <tbody>{tr.map((t) => <tr key={t.id}><td className="whitespace-nowrap">{fmtDateTime(t.startAt)}</td><td>{t.dogName}</td><td>{t.customerName}</td><td>{t.serviceName}</td><td>{t.operatorName || "—"}</td><td>{t.durationMin}′</td>
+              <td>{euro(t.finalPriceCents ?? t.estimatedPriceCents)}</td><td>{euro(t.paidCents)}{t.payMethods && <span className="block text-xs text-slate-500">{t.payMethods}</span>}</td><td className="max-w-xs text-xs">{t.treatmentNotes || ""}</td></tr>)}</tbody></table></div>
+        )}
+      </>}
+    </div>
   );
 }

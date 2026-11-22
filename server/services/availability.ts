@@ -7,6 +7,7 @@ import {
 } from "../../shared/schema";
 import { getSettings } from "./settings";
 import { addDays, dateToRome, romeToDate, toMin, fromMin, weekdayOf } from "../time";
+import { subtractInterval as subtract, shiftWindows, freeSlots, type Interval } from "../logic";
 
 export class SlotError extends Error { status = 409; }
 
@@ -41,7 +42,6 @@ export async function compatibleOperators(serviceId: number, onlineOnly: boolean
   return rows.map((r: any) => r.op);
 }
 
-type Interval = [number, number]; // minuti dalla mezzanotte
 
 /** Finestre lavorative di un operatore in un giorno (turni – pause – assenze – chiusure). */
 async function workingIntervals(operatorId: number, day: string, tx: any): Promise<Interval[]> {
@@ -49,12 +49,7 @@ async function workingIntervals(operatorId: number, day: string, tx: any): Promi
   const shifts = await tx.select().from(operatorShifts).where(and(eq(operatorShifts.operatorId, operatorId), eq(operatorShifts.weekday, wd)));
   let intervals: Interval[] = [];
   for (const s of shifts) {
-    const a = toMin(s.startTime), b = toMin(s.endTime);
-    if (s.breakStart && s.breakEnd) {
-      const bs = toMin(s.breakStart), be = toMin(s.breakEnd);
-      if (bs > a) intervals.push([a, Math.min(bs, b)]);
-      if (be < b) intervals.push([Math.max(be, a), b]);
-    } else intervals.push([a, b]);
+    intervals.push(...shiftWindows(toMin(s.startTime), toMin(s.endTime), s.breakStart ? toMin(s.breakStart) : null, s.breakEnd ? toMin(s.breakEnd) : null));
   }
   const absences = await tx.select().from(operatorAbsences).where(and(
     lte(operatorAbsences.startDate, day), gte(operatorAbsences.endDate, day),
@@ -65,16 +60,6 @@ async function workingIntervals(operatorId: number, day: string, tx: any): Promi
     intervals = subtract(intervals, [toMin(ab.startTime), toMin(ab.endTime)]);
   }
   return intervals;
-}
-
-function subtract(list: Interval[], cut: Interval): Interval[] {
-  const out: Interval[] = [];
-  for (const [a, b] of list) {
-    if (cut[1] <= a || cut[0] >= b) { out.push([a, b]); continue; }
-    if (cut[0] > a) out.push([a, cut[0]]);
-    if (cut[1] < b) out.push([cut[1], b]);
-  }
-  return out;
 }
 
 /** Intervalli occupati (in minuti, ora di Roma) per un operatore in un giorno. */
@@ -102,14 +87,7 @@ export async function operatorSlots(operatorId: number, day: string, durationMin
   const work = await workingIntervals(operatorId, day, tx);
   if (!work.length) return [];
   const busy = await busyIntervals(operatorId, day, s.booking.bufferMin, opts.excludeId, s.booking.requestBlocksSlot, tx);
-  const slots: string[] = [];
-  for (const [a, b] of work) {
-    for (let t = a; t + durationMin <= b; t += grid) {
-      if (busy.some(([x, y]) => t < y && t + durationMin > x)) continue;
-      slots.push(fromMin(t));
-    }
-  }
-  return slots;
+  return freeSlots(work, busy, durationMin, grid).map(fromMin);
 }
 
 /** Disponibilità pubblica: { "09:00": [operatorIds...] } con preavviso minimo e finestra massima. */

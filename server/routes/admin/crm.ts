@@ -9,9 +9,12 @@ import {
 import { requirePerm, hashPassword, publicUser } from "../../auth";
 import { crud } from "../../crud";
 import { dogSchema, validateCustomFields } from "../account";
-import { ensureCard } from "../../services/loyalty";
+import { ensureCard, upcomingExpiries } from "../../services/loyalty";
+import { recordConsent } from "../../services/consents";
+import { averageGapDays, normalizePhone } from "../../logic";
+import { customerConsents, emailQueue, notifications } from "../../../shared/schema";
 import { audit } from "../../services/audit";
-import { sendEmail, emailLayout, p } from "../../services/email";
+import { sendTemplate } from "../../services/email";
 import { h, HttpError, id, paging, zOptStr, zOptDay, toCsv } from "../../util";
 
 const r = Router();
@@ -20,7 +23,18 @@ const r = Router();
 r.get("/customers", requirePerm("clienti"), h(async (req, res) => {
   const { page, pageSize, offset } = paging(req);
   const q = String(req.query.q || "").trim();
-  const where = and(eq(users.role, "customer"), q ? or(
+  const f = z.object({
+    marketing: z.enum(["si", "no"]).optional(), size: z.enum(["piccola", "media", "grande", "gigante"]).optional(),
+    inactiveDays: z.coerce.number().int().min(1).optional(), minVisits: z.coerce.number().int().min(1).optional(), serviceId: z.coerce.number().int().optional(), city: z.string().max(80).optional(),
+  }).parse(req.query);
+  const extra: any[] = [];
+  if (f.marketing) extra.push(eq(users.consentMarketing, f.marketing === "si"));
+  if (f.size) extra.push(sql`exists (select 1 from dogs d where d.owner_id = ${users.id} and d.size = ${f.size} and not d.archived)`);
+  if (f.inactiveDays) extra.push(sql`not exists (select 1 from appointments a where a.customer_id = ${users.id} and a.status = 'completata' and a.start_at >= now() - make_interval(days => ${f.inactiveDays}))`);
+  if (f.minVisits) extra.push(sql`(select count(*) from appointments a where a.customer_id = ${users.id} and a.status = 'completata' and a.start_at >= now() - interval '12 months') >= ${f.minVisits}`);
+  if (f.serviceId) extra.push(sql`exists (select 1 from appointments a where a.customer_id = ${users.id} and a.status = 'completata' and a.service_id = ${f.serviceId})`);
+  if (f.city) extra.push(ilike(users.city, `%${f.city}%`));
+  const where = and(eq(users.role, "customer"), ...extra, q ? or(
     ilike(users.firstName, `%${q}%`), ilike(users.lastName, `%${q}%`), ilike(users.email, `%${q}%`), ilike(users.phone, `%${q}%`),
     sql`exists (select 1 from dogs d where d.owner_id = ${users.id} and d.name ilike ${"%" + q + "%"})`,
   ) : undefined);
@@ -46,6 +60,18 @@ r.get("/customers/export.csv", requirePerm("clienti"), h(async (_req, res) => {
   res.send(toCsv(rows));
 }));
 
+/** Possibili duplicati: stesso telefono normalizzato o stesso nome e cognome. */
+r.get("/customers/duplicates", requirePerm("clienti"), h(async (_req, res) => {
+  const all = await db.select({ id: users.id, firstName: users.firstName, lastName: users.lastName, email: users.email, phone: users.phone, createdAt: users.createdAt })
+    .from(users).where(eq(users.role, "customer"));
+  const groups = new Map<string, typeof all>();
+  for (const u of all) {
+    const keys = [normalizePhone(u.phone) && normalizePhone(u.phone).length >= 8 ? "tel:" + normalizePhone(u.phone) : null, "nome:" + `${u.firstName} ${u.lastName}`.toLowerCase().replace(/\s+/g, " ").trim()];
+    for (const k of keys.filter(Boolean) as string[]) { const g = groups.get(k) || []; g.push(u); groups.set(k, g); }
+  }
+  res.json([...groups.entries()].filter(([, g]) => g.length > 1).map(([key, list]) => ({ reason: key.startsWith("tel:") ? "Stesso telefono" : "Stesso nome e cognome", key, customers: list })));
+}));
+
 r.get("/customers/:id", requirePerm("clienti"), h(async (req, res) => {
   const cid = id(req.params.id);
   const [u] = await db.select().from(users).where(eq(users.id, cid));
@@ -61,10 +87,28 @@ r.get("/customers/:id", requirePerm("clienti"), h(async (req, res) => {
     db.select().from(boardingRequests).where(eq(boardingRequests.customerId, cid)).orderBy(desc(boardingRequests.startDate)),
     db.select().from(orders).where(eq(orders.customerId, cid)).orderBy(desc(orders.createdAt)).limit(100),
   ]);
+  const [consents, comms, notifs, expiries] = await Promise.all([
+    db.select().from(customerConsents).where(eq(customerConsents.userId, cid)).orderBy(desc(customerConsents.createdAt)).limit(100),
+    db.select({ id: emailQueue.id, subject: emailQueue.subject, template: emailQueue.template, status: emailQueue.status, createdAt: emailQueue.createdAt }).from(emailQueue).where(eq(emailQueue.userId, cid)).orderBy(desc(emailQueue.id)).limit(50),
+    db.select().from(notifications).where(eq(notifications.userId, cid)).orderBy(desc(notifications.id)).limit(30),
+    upcomingExpiries(card.id),
+  ]);
+  const done = apps.filter((x) => x.a.status === "completata");
+  const now = Date.now();
+  const spentServices = pays.filter((p) => p.status === "pagato" && p.appointmentId).reduce((a, p) => a + (p.kind === "rimborso" ? -p.amountCents : p.amountCents), 0);
+  const spentShop = pays.filter((p) => p.status === "pagato" && p.orderId).reduce((a, p) => a + (p.kind === "rimborso" ? -p.amountCents : p.amountCents), 0);
+  const appsOut = apps.map((x) => ({ ...x.a, serviceName: x.serviceName, operatorName: x.operatorName }));
   res.json({
     customer: publicUser(u), dogs: ds,
-    appointments: apps.map((x) => ({ ...x.a, serviceName: x.serviceName, operatorName: x.operatorName })),
-    payments: pays, loyalty: { card, transactions: lt }, boarding: board, orders: ords,
+    appointments: appsOut,
+    upcoming: appsOut.filter((a) => new Date(a.startAt).getTime() >= now && ["richiesta", "in_valutazione", "proposta", "confermata", "attesa_pagamento"].includes(a.status)),
+    kpi: {
+      visits: done.length, lastVisit: done[0]?.a.startAt ?? null, frequencyDays: averageGapDays(done.map((x) => x.a.startAt)),
+      spentServicesCents: spentServices, spentShopCents: spentShop, totalSpentCents: spentServices + spentShop,
+      cancellations: apps.filter((x) => x.a.status === "annullata").length, noShows: apps.filter((x) => x.a.status === "assente").length,
+    },
+    payments: pays, loyalty: { card, transactions: lt, expiries }, boarding: board, orders: ords,
+    consents, communications: { emails: comms, notifications: notifs },
   });
 }));
 
@@ -78,39 +122,51 @@ const customerSchema = z.object({
 });
 
 /** Creazione cliente dal banco: password casuale, il cliente potrà reimpostarla con "password dimenticata". */
-r.post("/customers", requirePerm("clienti"), h(async (req, res) => {
-  const d = customerSchema.extend({ sendInvite: z.boolean().optional() }).parse(req.body);
+r.post("/customers", requirePerm("clienti_edit"), h(async (req, res) => {
+  const d = customerSchema.extend({ sendInvite: z.boolean().optional(), consentProof: zOptStr(500) }).parse(req.body);
+  if (d.consentMarketing && !d.consentProof) throw new HttpError(400, "Per registrare il consenso marketing dal banco indica la prova del consenso (es. modulo firmato del …)");
   const [exists] = await db.select({ id: users.id }).from(users).where(sql`lower(${users.email}) = ${d.email}`);
   if (exists) throw new HttpError(409, "Email già registrata");
-  const { sendInvite, ...data } = d;
-  const [u] = await db.insert(users).values({ ...data, role: "customer", passwordHash: await hashPassword(crypto.randomBytes(24).toString("hex")), consentDate: new Date() }).returning();
+  const { sendInvite, consentProof, ...data } = d;
+  const [u] = await db.insert(users).values({ ...data, role: "customer", passwordHash: await hashPassword(crypto.randomBytes(24).toString("hex")), consentDate: new Date(), unsubscribeToken: crypto.randomBytes(24).toString("hex") }).returning();
+  await recordConsent(null, { userId: u.id, kind: "privacy", granted: d.consentPrivacy, source: "inserimento_salone", proof: consentProof, createdBy: req.user!.id });
+  await recordConsent(null, { userId: u.id, kind: "marketing", granted: d.consentMarketing, source: "inserimento_salone", proof: consentProof, createdBy: req.user!.id });
   await ensureCard(u.id);
   if (sendInvite) {
     const base = process.env.PUBLIC_URL || "";
-    await sendEmail(u.email, "Il tuo account Dog's Planet", emailLayout("Il tuo account è pronto", p(`Ciao ${u.firstName}, abbiamo creato il tuo account. Imposta la tua password con "Password dimenticata" e accedi per vedere appuntamenti e Fidelity Card.`), { label: "Accedi", url: `${base}/password-dimenticata` }), "invite");
+    await sendTemplate("comunicazione", u.email, { oggetto: "Il tuo account Dog's Planet", messaggio: `Ciao ${u.firstName}, abbiamo creato il tuo account. Imposta la tua password con "Password dimenticata" e accedi per vedere appuntamenti e Fidelity Card.` }, { userId: u.id, cta: { label: "Imposta la password", url: `${base}/password-dimenticata` } });
   }
   await audit(req, "create", "customer", u.id);
   res.status(201).json(publicUser(u));
 }));
 
-r.patch("/customers/:id", requirePerm("clienti"), h(async (req, res) => {
-  const d = customerSchema.partial().parse(req.body);
-  const [u] = await db.update(users).set({ ...d, updatedAt: new Date() }).where(and(eq(users.id, id(req.params.id)), eq(users.role, "customer"))).returning();
+r.patch("/customers/:id", requirePerm("clienti_edit"), h(async (req, res) => {
+  const d = customerSchema.partial().extend({ consentProof: zOptStr(500) }).parse(req.body);
+  const { consentProof, ...upd } = d;
+  const [before] = await db.select().from(users).where(and(eq(users.id, id(req.params.id)), eq(users.role, "customer")));
+  if (!before) throw new HttpError(404, "Cliente non trovato");
+  if (d.consentMarketing === true && !before.consentMarketing && !consentProof) throw new HttpError(400, "Indica la prova del consenso marketing raccolto");
+  for (const k of ["consentPrivacy", "consentMarketing"] as const) {
+    if (d[k] !== undefined && d[k] !== before[k]) await recordConsent(null, { userId: before.id, kind: k === "consentPrivacy" ? "privacy" : "marketing", granted: !!d[k], source: "salone", proof: consentProof, createdBy: req.user!.id });
+  }
+  const [u] = await db.update(users).set({ ...upd, ...(d.consentMarketing !== undefined && d.consentMarketing !== before.consentMarketing ? { consentDate: new Date() } : {}), updatedAt: new Date() }).where(and(eq(users.id, id(req.params.id)), eq(users.role, "customer"))).returning();
   if (!u) throw new HttpError(404, "Cliente non trovato");
   await audit(req, "update", "customer", u.id, { fields: Object.keys(d) });
   res.json(publicUser(u));
 }));
 
 // ---------- cani (lato salone) ----------
-r.post("/customers/:id/dogs", requirePerm("clienti"), h(async (req, res) => {
-  const d = dogSchema.parse(req.body);
+const adminDogSchema = dogSchema.extend({ recallDays: z.coerce.number().int().min(1).max(365).nullable().optional() });
+
+r.post("/customers/:id/dogs", requirePerm("cani_edit"), h(async (req, res) => {
+  const d = adminDogSchema.parse(req.body);
   d.customFields = await validateCustomFields(d.customFields);
   const [dog] = await db.insert(dogs).values({ ...d, ownerId: id(req.params.id) } as any).returning();
   await audit(req, "create", "dog", dog.id);
   res.status(201).json(dog);
 }));
-r.patch("/dogs/:id", requirePerm("clienti"), h(async (req, res) => {
-  const d = dogSchema.extend({ archived: z.boolean() }).partial().parse(req.body);
+r.patch("/dogs/:id", requirePerm("cani_edit"), h(async (req, res) => {
+  const d = adminDogSchema.extend({ archived: z.boolean() }).partial().parse(req.body);
   if (d.customFields) d.customFields = await validateCustomFields(d.customFields);
   const [dog] = await db.update(dogs).set({ ...d, updatedAt: new Date() } as any).where(eq(dogs.id, id(req.params.id))).returning();
   if (!dog) throw new HttpError(404, "Cane non trovato");
@@ -127,7 +183,7 @@ r.get("/dogs", requirePerm("clienti"), h(async (req, res) => {
 
 // ---------- campi personalizzati scheda cane ----------
 r.use("/dog-fields", crud({
-  table: dogCustomFields, entity: "dog_field", perm: "clienti",
+  table: dogCustomFields, entity: "dog_field", perm: "impostazioni",
   order: [{ col: "sortOrder", dir: "asc" }, { col: "id", dir: "asc" }],
   schema: z.object({
     fieldKey: z.string().trim().regex(/^[a-z0-9_]{2,60}$/, "solo lettere minuscole, numeri e _"),

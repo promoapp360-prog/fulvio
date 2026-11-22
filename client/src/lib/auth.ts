@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { get, post } from "./api";
 
 export type Me = {
-  id: number; email: string; role: "admin" | "staff" | "operator" | "customer"; permissions: string[];
+  id: number; email: string; username?: string | null; role: "admin" | "manager" | "operator" | "customer"; permissions: string[]; mustChangePassword?: boolean; emailVerifiedAt?: string | null;
   firstName: string; lastName: string; phone: string | null; [k: string]: any;
 } | null;
 
@@ -11,11 +11,12 @@ export function useMe() {
 }
 
 export const isStaffRole = (me: Me) => !!me && me.role !== "customer";
-export function can(me: Me, perm: string) {
+/** Stessa logica del backend (che resta l'unico controllo vincolante). Accetta più permessi alternativi. */
+export function can(me: Me, ...perms: string[]) {
   if (!me) return false;
   if (me.role === "admin") return true;
-  if (me.role === "operator" && (perm === "agenda" || perm === "ore")) return true;
-  return me.role !== "customer" && (me.permissions || []).includes(perm);
+  if (me.role === "customer") return false;
+  return perms.some((p) => (me.role === "operator" && p === "agenda_view") || (me.permissions || []).includes(p));
 }
 
 export function useLogout() {

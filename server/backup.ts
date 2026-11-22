@@ -7,7 +7,8 @@ const TABLES = [
   "users", "dog_custom_fields", "dogs", "services", "service_variants", "service_supplements", "operators", "operator_services", "operator_shifts",
   "operator_absences", "resources", "appointments", "appointment_events", "suppliers", "products", "stock_movements", "orders", "order_items",
   "payments", "work_logs", "selfservice_incomes", "loyalty_cards", "loyalty_transactions", "loyalty_rewards", "boarding_requests", "pages", "faqs",
-  "media", "promotions", "campaigns", "privacy_contacts", "settings",
+  "media", "promotions", "campaigns", "privacy_contacts", "settings", "staff_settlements", "product_categories", "product_variants",
+  "boarding_events", "email_templates", "consent_policies", "customer_consents", "contact_imports", "privacy_contact_history",
 ];
 
 /** Esporta tutte le tabelle applicative (esclusi log tecnici e sessioni). */
@@ -15,7 +16,7 @@ export async function exportAll() {
   const out: Record<string, unknown> = { exportedAt: new Date().toISOString(), version: 1 };
   for (const t of TABLES) {
     const { rows } = await pool.query(`SELECT * FROM ${t} ORDER BY 1`);
-    if (t === "users") rows.forEach((r) => { delete r.password_hash; delete r.reset_token; });
+    if (t === "users") rows.forEach((r) => { delete r.password_hash; delete r.reset_token; delete r.email_verify_token; delete r.unsubscribe_token; });
     out[t] = rows;
   }
   return out;

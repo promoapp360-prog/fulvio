@@ -10,6 +10,9 @@ import { storeUpload, deleteStored } from "../../services/storage";
 import { getSettings, setSetting, DEFAULT_SETTINGS, type SettingsKey } from "../../services/settings";
 import { audit } from "../../services/audit";
 import { h, HttpError, id, zOptStr } from "../../util";
+import { emailTemplates } from "../../../shared/schema";
+import { DEFAULT_TEMPLATES } from "../../services/templates";
+import { sendTemplate } from "../../services/email";
 
 const r = Router();
 const upload = multer({
@@ -59,6 +62,32 @@ r.delete("/media/:id", requirePerm("contenuti"), h(async (req, res) => {
   res.json({ ok: true });
 }));
 
+// ---------- template email personalizzabili ----------
+r.get("/email-templates", requirePerm("impostazioni", "marketing"), h(async (_req, res) => {
+  const rows = await db.select().from(emailTemplates);
+  res.json(Object.entries(DEFAULT_TEMPLATES).map(([key, d]) => {
+    const t = rows.find((x) => x.key === key);
+    return { key, name: d.name, subject: t?.subject ?? d.subject, body: t?.body ?? d.body, active: t?.active ?? true, customized: !!t, defaultSubject: d.subject, defaultBody: d.body };
+  }));
+}));
+r.put("/email-templates/:key", requirePerm("impostazioni", "marketing"), h(async (req, res) => {
+  const key = req.params.key;
+  if (!DEFAULT_TEMPLATES[key]) throw new HttpError(404, "Template inesistente");
+  const d = z.object({ subject: z.string().trim().min(1).max(200), body: z.string().trim().min(1).max(10_000), active: z.boolean().default(true) }).parse(req.body);
+  await db.insert(emailTemplates).values({ key, name: DEFAULT_TEMPLATES[key].name, ...d })
+    .onConflictDoUpdate({ target: emailTemplates.key, set: { ...d, updatedAt: new Date() } });
+  await audit(req, "update", "email_template", key, d);
+  res.json({ ok: true });
+}));
+r.delete("/email-templates/:key", requirePerm("impostazioni", "marketing"), h(async (req, res) => {
+  await db.delete(emailTemplates).where(eq(emailTemplates.key, req.params.key));
+  res.json({ ok: true });
+}));
+r.post("/email-templates/:key/test", requirePerm("impostazioni", "marketing"), h(async (req, res) => {
+  const ok = await sendTemplate(req.params.key, req.user!.email, { nome: req.user!.firstName, cane: "Fido", servizio: "Toelettatura professionale", data: "lunedì 1 dicembre, 10:00", operatore: "Martina", importo: "€ 0,00", ordine: 1, stato: "Esempio", giorni: 30, punti: 0, messaggio: "Messaggio di prova", oggetto: "Email di prova", link: process.env.PUBLIC_URL || "" }, { userId: req.user!.id });
+  res.json({ queued: ok, to: req.user!.email });
+}));
+
 // ---------- impostazioni ----------
 r.get("/settings", h(async (_req, res) => res.json(await getSettings())));
 
@@ -66,7 +95,7 @@ r.put("/settings/:key", h(async (req, res) => {
   const key = req.params.key as SettingsKey;
   if (!(key in DEFAULT_SETTINGS)) throw new HttpError(404, "Sezione impostazioni inesistente");
   // contenuti del sito modificabili da chi gestisce i contenuti, il resto da chi gestisce le impostazioni
-  const perm = key === "site" || key === "seo" || key === "selfservice" ? "contenuti" : "impostazioni";
+  const perm = ["site", "seo", "selfservice", "brand"].includes(key) ? "contenuti" : key === "staff" ? "personale" : key === "loyalty" ? "fidelity" : "impostazioni";
   const u = req.user!;
   if (u.role !== "admin" && !(u.permissions || []).includes(perm)) throw new HttpError(403, "Permesso negato");
   if (key === "payments" && u.role !== "admin") throw new HttpError(403, "Solo l'amministratore modifica i pagamenti");
@@ -80,6 +109,18 @@ r.put("/settings/:key", h(async (req, res) => {
     }).partial().parse(clean);
     Object.assign(clean, b);
   }
+  if (key === "staff") Object.assign(clean, z.object({ roundingStep: z.number().int().min(1).max(60), roundingMode: z.enum(["vicino", "difetto", "eccesso"]), payWeekday: z.number().int().min(0).max(6) }).partial().parse(clean));
+  if (key === "loyalty") Object.assign(clean, z.object({
+    enabled: z.boolean(), pointsPerEuro: z.number().min(0).max(100), welcomePoints: z.number().int().min(0), birthdayPoints: z.number().int().min(0), earnOnServices: z.boolean(), earnOnProducts: z.boolean(),
+    pointValueCents: z.number().int().min(0).max(10_000), minRedeemPoints: z.number().int().min(0), expiryMode: z.enum(["nessuna", "annuale", "fissa", "periodo"]),
+    expiryFixedDate: z.string().regex(/^(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/, "formato MM-GG"), expiryDays: z.number().int().min(1).max(3650),
+  }).partial().parse(clean));
+  if (key === "notifications") Object.assign(clean, z.object({ reminderHours: z.number().int().min(1).max(168), recallEnabled: z.boolean(), recallDefaultDays: z.number().int().min(1).max(365).nullable() }).partial().parse(clean));
+  if (key === "cancellation") Object.assign(clean, z.object({ cancelHours: z.number().int().min(0).max(720), rescheduleHours: z.number().int().min(0).max(720), depositPolicy: z.string().max(2000), reasons: z.array(z.string().trim().min(1).max(80)).max(30) }).partial().parse(clean));
+  if (key === "shop") Object.assign(clean, z.object({
+    pickupEnabled: z.boolean(), pickupInfo: z.string().max(1000), deliveryEnabled: z.boolean(),
+    deliveryZones: z.array(z.object({ name: z.string().trim().min(1).max(80), caps: z.array(z.string().trim().regex(/^\d{5}$/, "CAP di 5 cifre")).min(1), costCents: z.number().int().min(0), freeFromCents: z.number().int().min(0).nullable().optional(), eta: z.string().max(80).optional(), active: z.boolean().optional() })).max(50),
+  }).partial().parse(clean));
   if (key === "payments") {
     Object.assign(clean, z.object({ defaultMode: z.enum(["nessuno", "acconto", "saldo", "negozio"]), depositPercent: z.number().int().min(1).max(100), onlineEnabled: z.boolean(), customMethods: z.array(z.string().trim().min(1).max(40)).max(20) }).partial().parse(clean));
   }

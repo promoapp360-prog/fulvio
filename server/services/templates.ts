@@ -1,0 +1,20 @@
+// Template email predefiniti: modificabili dall'admin (tabella email_templates). Segnaposto: {{nome}}, {{data}}, ...
+export const DEFAULT_TEMPLATES: Record<string, { name: string; subject: string; body: string }> = {
+  registrazione: { name: "Registrazione", subject: "Benvenuto in Dog's Planet!", body: "Ciao {{nome}},\n\nil tuo account è attivo. Ora puoi registrare i tuoi cani e richiedere la prenotazione on line.\n\nHai già la tua Fidelity Card digitale: la trovi nella tua area personale." },
+  verifica_email: { name: "Verifica email", subject: "Conferma il tuo indirizzo email", body: "Ciao {{nome}},\n\nper completare la registrazione conferma il tuo indirizzo email con il pulsante qui sotto." },
+  recupero_password: { name: "Recupero password", subject: "Reimposta la password", body: "Ciao {{nome}},\n\nhai richiesto di reimpostare la password. Il link è valido per 60 minuti. Se non sei stato tu, ignora questa email." },
+  richiesta_ricevuta: { name: "Richiesta appuntamento ricevuta", subject: "Abbiamo ricevuto la tua richiesta", body: "Ciao {{nome}},\n\nabbiamo ricevuto la tua richiesta per {{servizio}} di {{cane}} il {{data}}.\n\nLa richiesta non è ancora una prenotazione: ti scriveremo appena Dog's Planet l'avrà confermata." },
+  appuntamento_confermato: { name: "Conferma appuntamento", subject: "Appuntamento confermato", body: "Ciao {{nome}},\n\nti confermiamo l'appuntamento per {{servizio}} di {{cane}}: {{data}} con {{operatore}}.\n\nTi aspettiamo in Via Leonardo da Vinci 86, Cernusco sul Naviglio." },
+  appuntamento_pagamento: { name: "Pagamento richiesto", subject: "Completa il pagamento per confermare", body: "Ciao {{nome}},\n\nper confermare {{servizio}} del {{data}} è richiesto un pagamento di {{importo}}. Puoi pagare dalla tua area personale." },
+  appuntamento_proposta: { name: "Proposta nuovo orario", subject: "Ti proponiamo un nuovo orario", body: "Ciao {{nome}},\n\nper {{cane}} ti proponiamo {{data}}. Puoi accettare o rifiutare dalla tua area personale.\n\n{{messaggio}}" },
+  appuntamento_modificato: { name: "Modifica appuntamento", subject: "Il tuo appuntamento è stato modificato", body: "Ciao {{nome}},\n\nl'appuntamento per {{cane}} è stato aggiornato: {{data}} con {{operatore}}." },
+  appuntamento_annullato: { name: "Cancellazione appuntamento", subject: "Appuntamento annullato", body: "Ciao {{nome}},\n\nl'appuntamento del {{data}} per {{cane}} è stato annullato.\n\n{{messaggio}}" },
+  appuntamento_rifiutato: { name: "Richiesta non accettata", subject: "Non possiamo accogliere la tua richiesta", body: "Ciao {{nome}},\n\npurtroppo non possiamo accogliere la richiesta del {{data}}.\n\n{{messaggio}}\n\nContattaci per trovare un'alternativa." },
+  appuntamento_completato: { name: "Trattamento completato", subject: "Grazie per aver scelto Dog's Planet!", body: "Ciao {{nome}},\n\n{{cane}} è pronto e bellissimo. Abbiamo accreditato {{punti}} punti sulla tua Fidelity Card." },
+  promemoria: { name: "Promemoria appuntamento", subject: "Promemoria: ti aspettiamo da Dog's Planet", body: "Ciao {{nome}},\n\nti ricordiamo l'appuntamento per {{servizio}} di {{cane}}: {{data}}.\n\nSe non puoi venire avvisaci il prima possibile." },
+  richiamo: { name: "Richiamo periodico", subject: "È ora di coccolare {{cane}}!", body: "Ciao {{nome}},\n\nsono passati {{giorni}} giorni dall'ultimo trattamento di {{cane}}. Quando vuoi puoi richiedere un nuovo appuntamento on line." },
+  ordine_confermato: { name: "Conferma ordine", subject: "Ordine #{{ordine}} ricevuto", body: "Ciao {{nome}},\n\nabbiamo ricevuto il tuo ordine #{{ordine}} di {{importo}}.\n\n{{consegna}}" },
+  ordine_stato: { name: "Modifica stato ordine", subject: "Ordine #{{ordine}}: {{stato}}", body: "Ciao {{nome}},\n\nil tuo ordine #{{ordine}} è ora: {{stato}}." },
+  pensione_aggiornamento: { name: "Aggiornamento pensione", subject: "Pensione casalinga: {{stato}}", body: "Ciao {{nome}},\n\naggiornamento sulla tua richiesta di pensione per {{cane}} ({{date}}): {{stato}}.\n\n{{messaggio}}" },
+  comunicazione: { name: "Comunicazione amministrativa", subject: "{{oggetto}}", body: "{{messaggio}}" },
+};

@@ -5,7 +5,8 @@ import { ToastProvider, Spinner } from "@/components/ui";
 import CmsPage from "@/components/CmsPage";
 import Home from "@/pages/public/Home";
 import { ServiziPage, ToelettaturaPage, SelfServicePage, PensionePage, FidelityPage, ContattiPage, NotFound } from "@/pages/public/Pages";
-import { LoginPage, RegisterPage, ForgotPage, ResetPage } from "@/pages/public/Auth";
+import { LoginPage, RegisterPage, ForgotPage, ResetPage, ForceChangePasswordPage, VerifyEmailPage } from "@/pages/public/Auth";
+import { useMe } from "@/lib/auth";
 
 // aree riservate caricate a parte: il sito pubblico resta leggero
 const BookingPage = lazy(() => import("@/pages/public/Booking"));
@@ -15,6 +16,9 @@ const AdminArea = lazy(() => import("@/pages/admin/AdminLayout"));
 
 export default function App() {
   const [loc] = useLocation();
+  const { data: me } = useMe();
+  // password temporanea: nessuna altra schermata finché non viene cambiata
+  if (me?.mustChangePassword) return <ToastProvider><PublicLayout><ForceChangePasswordPage /></PublicLayout></ToastProvider>;
   return (
     <ToastProvider>
       <Suspense fallback={<Spinner />}>
@@ -35,6 +39,9 @@ export default function App() {
               <Route path="/registrazione" component={RegisterPage} />
               <Route path="/password-dimenticata" component={ForgotPage} />
               <Route path="/reset-password" component={ResetPage} />
+              <Route path="/cambia-password" component={ForceChangePasswordPage} />
+              <Route path="/verifica-email" component={VerifyEmailPage} />
+              <Route path="/installa-app"><CmsPage slug="installa-app" mascot="welcome" fallbackTitle="Installa l'app" /></Route>
               <Route path="/privacy-policy"><CmsPage slug="privacy-policy" fallbackTitle="Privacy Policy" /></Route>
               <Route path="/cookie-policy"><CmsPage slug="cookie-policy" fallbackTitle="Cookie Policy" /></Route>
               <Route path="/condizioni-del-servizio"><CmsPage slug="condizioni-del-servizio" fallbackTitle="Condizioni del servizio" /></Route>

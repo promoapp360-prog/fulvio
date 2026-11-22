@@ -15,10 +15,10 @@ const serviceSchema = z.object({
   name: z.string().trim().min(1).max(120), category: z.string().trim().min(1).max(80), description: zOptStr(4000),
   priceCents: z.number().int().min(0).nullable().optional(), priceFrom: z.boolean().default(true),
   durationMin: z.coerce.number().int().min(5).max(600), bookable: z.boolean().default(true), active: z.boolean().default(true),
-  visible: z.boolean().default(true), sortOrder: z.coerce.number().int().default(0),
+  visible: z.boolean().default(true), sortOrder: z.coerce.number().int().default(0), earnsPoints: z.boolean().default(true),
 });
 
-r.get("/services", requirePerm("agenda"), h(async (_req, res) => {
+r.get("/services", requirePerm("servizi", "agenda_view"), h(async (_req, res) => {
   const [svcs, vars, sups, links] = await Promise.all([
     db.select().from(services).orderBy(asc(services.sortOrder), asc(services.id)),
     db.select().from(serviceVariants), db.select().from(serviceSupplements), db.select().from(operatorServices),
@@ -48,7 +48,7 @@ async function saveServiceChildren(tx: any, serviceId: number, body: any) {
   }
 }
 
-r.post("/services", requirePerm("servizi"), h(async (req, res) => {
+r.post("/services", requirePerm("impostazioni"), h(async (req, res) => {
   const d = serviceSchema.parse(req.body);
   const s = await db.transaction(async (tx) => {
     const [row] = await tx.insert(services).values({ ...d, slug: `${slugify(d.name)}-${Date.now().toString(36)}` }).returning();
@@ -59,7 +59,7 @@ r.post("/services", requirePerm("servizi"), h(async (req, res) => {
   res.status(201).json(s);
 }));
 
-r.patch("/services/:id", requirePerm("servizi"), h(async (req, res) => {
+r.patch("/services/:id", requirePerm("impostazioni"), h(async (req, res) => {
   const sid = id(req.params.id);
   const d = serviceSchema.partial().parse(req.body);
   const s = await db.transaction(async (tx) => {
@@ -72,7 +72,7 @@ r.patch("/services/:id", requirePerm("servizi"), h(async (req, res) => {
   res.json(s);
 }));
 
-r.delete("/services/:id", requirePerm("servizi"), h(async (req, res) => {
+r.delete("/services/:id", requirePerm("impostazioni"), h(async (req, res) => {
   // se il servizio ha appuntamenti lo disattiviamo invece di eliminarlo
   const sid = id(req.params.id);
   try { await db.delete(services).where(eq(services.id, sid)); }
@@ -82,7 +82,7 @@ r.delete("/services/:id", requirePerm("servizi"), h(async (req, res) => {
 }));
 
 r.use("/supplements", crud({
-  table: serviceSupplements, entity: "supplement", perm: "servizi", filters: ["serviceId"],
+  table: serviceSupplements, entity: "supplement", perm: "impostazioni", filters: ["serviceId"],
   schema: z.object({
     serviceId: z.number().int().positive().nullable().optional(), name: z.string().trim().min(1).max(120),
     condition: z.enum(["manuale", "nodi", "muta", "aggressivo", "esigenze"]).default("manuale"),
@@ -103,7 +103,7 @@ const shiftsSchema = z.array(z.object({
 }).refine((s) => s.startTime < s.endTime, "l'orario di fine deve seguire l'inizio")
   .refine((s) => (!s.breakStart && !s.breakEnd) || (s.breakStart && s.breakEnd && s.breakStart < s.breakEnd), "pausa non valida")).max(30);
 
-r.get("/operators", requirePerm("agenda"), h(async (_req, res) => {
+r.get("/operators", requirePerm("agenda_view", "personale", "servizi"), h(async (_req, res) => {
   const [ops, links, shifts] = await Promise.all([
     db.select().from(operators).orderBy(asc(operators.sortOrder), asc(operators.id)),
     db.select().from(operatorServices), db.select().from(operatorShifts).orderBy(asc(operatorShifts.weekday), asc(operatorShifts.startTime)),
@@ -124,7 +124,7 @@ async function saveOperatorChildren(tx: any, opId: number, body: any) {
   }
 }
 
-r.post("/operators", requirePerm("operatori"), h(async (req, res) => {
+r.post("/operators", requirePerm("personale"), h(async (req, res) => {
   const d = operatorSchema.parse(req.body);
   const o = await db.transaction(async (tx) => {
     const [row] = await tx.insert(operators).values(d).returning();
@@ -135,7 +135,7 @@ r.post("/operators", requirePerm("operatori"), h(async (req, res) => {
   res.status(201).json(o);
 }));
 
-r.patch("/operators/:id", requirePerm("operatori"), h(async (req, res) => {
+r.patch("/operators/:id", requirePerm("personale"), h(async (req, res) => {
   const oid = id(req.params.id);
   const d = operatorSchema.partial().parse(req.body);
   const o = await db.transaction(async (tx) => {
@@ -149,7 +149,7 @@ r.patch("/operators/:id", requirePerm("operatori"), h(async (req, res) => {
 }));
 
 r.use("/absences", crud({
-  table: operatorAbsences, entity: "absence", perm: "operatori", filters: ["operatorId", "kind"],
+  table: operatorAbsences, entity: "absence", perm: "personale", filters: ["operatorId", "kind"],
   order: [{ col: "startDate", dir: "desc" }],
   schema: z.object({
     operatorId: z.number().int().positive().nullable().optional(),
@@ -165,7 +165,7 @@ r.use("/absences", crud({
 }));
 
 r.use("/resources", crud({
-  table: resources, entity: "resource", perm: "operatori",
+  table: resources, entity: "resource", perm: "personale",
   schema: z.object({ name: z.string().trim().min(1).max(80), kind: z.string().trim().max(30).default("postazione"), active: z.boolean().default(true) }),
 }));
 

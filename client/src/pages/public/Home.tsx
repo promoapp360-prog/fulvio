@@ -41,10 +41,12 @@ export default function Home() {
             </ul>
           </div>
           <div className="relative order-1 md:order-2">
-            <picture>
-              <source srcSet="/brand/hero.webp" type="image/webp" />
-              <img src="/brand/hero.jpg" alt="La mascotte di Dog's Planet sul prato" className="aspect-[4/3] w-full rounded-[2.5rem] object-cover shadow-soft" width={720} height={590} />
-            </picture>
+            {s?.brand?.heroImageUrl ? <img src={s.brand.heroImageUrl} alt="Dog's Planet" className="aspect-[4/3] w-full rounded-[2.5rem] object-cover shadow-soft" /> : (
+              <picture>
+                <source srcSet="/brand/hero.webp" type="image/webp" />
+                <img src="/brand/hero.jpg" alt="La mascotte di Dog's Planet sul prato" className="aspect-[4/3] w-full rounded-[2.5rem] object-cover shadow-soft" width={720} height={590} />
+              </picture>
+            )}
             <div className="absolute -bottom-6 left-1/2 w-[78%] -translate-x-1/2 rounded-3xl bg-white/95 p-4 shadow-soft backdrop-blur sm:left-auto sm:right-4 sm:w-64 sm:translate-x-0">
               <Logo className="mx-auto h-16" />
             </div>
@@ -53,6 +55,14 @@ export default function Home() {
         <svg viewBox="0 0 1440 60" className="block w-full text-white" preserveAspectRatio="none" aria-hidden><path fill="currentColor" d="M0 40c240-40 480-40 720 0s480 40 720 0v20H0z" /></svg>
       </section>
 
+      {s?.brand?.bannerActive && s.brand.bannerText && (
+        <section className="container-dp pt-6">
+          <a href={s.brand.bannerUrl || "#"} className="flex flex-col items-center gap-3 overflow-hidden rounded-3xl bg-brand-navy text-white sm:flex-row">
+            {s.brand.bannerImageUrl && <img src={s.brand.bannerImageUrl} alt="" className="h-32 w-full object-cover sm:w-64" />}
+            <p className="p-5 text-lg font-bold">{s.brand.bannerText}</p>
+          </a>
+        </section>
+      )}
       {promos && promos.length > 0 && (
         <section className="container-dp pt-6">
           {promos.map((p) => (
