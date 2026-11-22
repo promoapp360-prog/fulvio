@@ -52,8 +52,13 @@ Trasferire i due valori soltanto nel modulo Secrets, mai nella chat o in Git.
 Non riutilizzare coppie di altri clienti e non rigenerarle a ogni avvio.
 Dopo il salvataggio riavviare il workflow e verificare `pushConfigured`.
 
-Durante questa verifica le chiavi erano **assenti**, quindi le push reali
-rimangono disabilitate, senza richieste di permesso o conferme ingannevoli.
+Le due voci Secrets sono state inserite. Dopo il riavvio, tuttavia, sia il server
+diretto sia l'anteprima restituiscono ancora `pushConfigured: false`: la
+configurazione non è stata riconosciuta come coppia VAPID valida. Le push reali
+rimangono quindi disabilitate, senza richieste di permesso o conferme ingannevoli.
+Occorre reinserire tramite modulo protetto i soli valori prodotti da un'unica
+generazione, senza intestazioni, virgolette o testo aggiuntivo. Nessuna chiave
+è stata letta, mostrata o salvata in Git durante la verifica.
 Anche SMTP è assente: l'email rimane il canale principale previsto, ma gli invii
 reali email non sono configurati. Le comunicazioni in-app restano disponibili.
 
