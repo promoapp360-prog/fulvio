@@ -7,7 +7,7 @@ import { workLogs, operators, users, staffSettlements, loginLog } from "../../..
 import { requirePerm, requireAdmin, hashPassword, publicUser, hasPerm, revokeSessions } from "../../auth";
 import { audit } from "../../services/audit";
 import { getSettings } from "../../services/settings";
-import { sendXlsx, sendPdf, type Column } from "../../services/exporter";
+import { sendXlsx, sendPdf, type Column, type Sheet } from "../../services/exporter";
 import { h, HttpError, id, zDay, zTime, zOptStr, paging } from "../../util";
 import { dateToRome, addDays } from "../../time";
 import { roundMinutes, workAmountCents, rawWorkedMinutes, settlementWeek } from "../../logic";
@@ -211,7 +211,7 @@ r.get("/settlements", requirePerm("personale"), h(async (req, res) => {
     .orderBy(desc(staffSettlements.weekStart), asc(operators.name));
   const list = rows.map((x) => ({ ...x.s, operatorName: x.name, hours: (x.s.minutes / 60).toFixed(2).replace(".", ","), period: `${x.s.weekStart} → ${x.s.weekEnd}`, stato: x.s.status === "pagato" ? `Pagato ${x.s.paidAt ?? ""}` : "Da pagare" }));
   if (q.format) {
-    const sheets = [{
+    const sheets: Sheet[] = [{
       name: "Liquidazioni", columns: [{ key: "operatorName", label: "Operatore", width: 14 }, { key: "period", label: "Settimana", width: 20 }, { key: "hours", label: "Ore", width: 7 },
         { key: "grossCents", label: "Maturato", money: true, width: 10 }, { key: "adjustmentsCents", label: "Rettifiche", money: true, width: 10 }, { key: "adjustmentNote", label: "Motivo rettifica", width: 18 },
         { key: "totalCents", label: "Da pagare", money: true, width: 10 }, { key: "stato", label: "Stato", width: 14 }, { key: "paidMethod", label: "Metodo", width: 10 }] as Column[],

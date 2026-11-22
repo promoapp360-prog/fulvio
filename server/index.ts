@@ -25,16 +25,21 @@ const isProd = process.env.NODE_ENV === "production";
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 async function main() {
-  await runMigrations();
+  // Su Replit le migrazioni di produzione sono gestite dalla pubblicazione.
+  if (!isProd) await runMigrations();
   await seedIfEmpty();
 
   const app = express();
   const server = http.createServer(app);
   app.disable("x-powered-by");
   app.use(helmet({
+    // L'anteprima Replit incorpora l'app in un iframe; in produzione
+    // rimane attiva la protezione originale contro il framing.
+    frameguard: isProd ? { action: "sameorigin" } : false,
     contentSecurityPolicy: {
       useDefaults: true,
       directives: {
+        "frame-ancestors": isProd ? ["'self'"] : null,
         "script-src": ["'self'", "'unsafe-inline'", "https://www.googletagmanager.com", "https://connect.facebook.net", ...(isProd ? [] : ["'unsafe-eval'"])],
         "img-src": ["'self'", "data:", "blob:", "https:"],
         "frame-src": ["'self'", "https://www.google.com", "https://maps.google.com", "https://www.youtube.com", "https://www.youtube-nocookie.com", "https://player.vimeo.com"],

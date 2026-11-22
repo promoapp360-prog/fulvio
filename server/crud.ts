@@ -54,7 +54,9 @@ export function crud(o: Opts) {
   r.post("/", h(async (req, res) => {
     let data = o.schema.parse(req.body);
     if (o.beforeSave) data = await o.beforeSave(data);
-    const [row] = await db.insert(t).values(data).returning();
+    const inserted = await db.insert(t).values(data).returning();
+    if (!Array.isArray(inserted) || !inserted[0]) throw new Error("Creazione non riuscita");
+    const row = inserted[0];
     await audit(req, "create", o.entity, row.id, data);
     if (o.afterSave) await o.afterSave(row, req);
     res.status(201).json(row);
@@ -75,7 +77,8 @@ export function crud(o: Opts) {
 
   r.delete("/:id", h(async (req, res) => {
     const rid = id(req.params.id);
-    const [row] = await db.delete(t).where(eq(t.id, rid)).returning();
+    const deleted = await db.delete(t).where(eq(t.id, rid)).returning();
+    const row = Array.isArray(deleted) ? deleted[0] : undefined;
     if (!row) throw new HttpError(404, "Non trovato");
     await audit(req, "delete", o.entity, rid, {});
     res.json({ ok: true });

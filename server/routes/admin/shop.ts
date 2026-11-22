@@ -29,7 +29,7 @@ r.use("/products", crud({
   schema: z.object({
     name: z.string().trim().min(1).max(160), category: z.string().trim().min(1).max(80), description: zOptStr(5000),
     priceCents: z.number().int().min(0), salePriceCents: z.number().int().min(0).nullable().optional(), costCents: z.number().int().min(0).nullable().optional(),
-    vatRate: z.coerce.number().min(0).max(30).transform(String).default("22"), sku: zOptStr(60), barcode: zOptStr(60),
+    vatRate: z.coerce.number().min(0).max(30).default(22).transform(String), sku: zOptStr(60), barcode: zOptStr(60),
     minStock: z.number().int().min(0).default(0), supplierId: z.number().int().positive().nullable().optional(), imageUrl: zOptStr(500),
     isFood: z.boolean().default(false), privateLabel: z.boolean().default(false), earnsPoints: z.boolean().default(true),
     visibleOnline: z.boolean().default(true), active: z.boolean().default(true),

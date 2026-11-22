@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 const dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
+  server: { allowedHosts: true },
   root: path.resolve(dirname, "client"),
   plugins: [react()],
   resolve: {

@@ -1,5 +1,30 @@
 # Esiti dei test – Dog's Planet
 
+## Importazione nell'applicazione Replit — 22/11/2026
+
+Ambiente reale Replit, Node.js 24, PostgreSQL dedicato al progetto. Le limitazioni descritte nel resoconto storico qui sotto non valgono per questa verifica.
+
+| Verifica eseguita | Esito |
+|---|---|
+| `pnpm --filter @workspace/dogs-planet run check` | Superato, nessun errore TypeScript |
+| `pnpm --filter @workspace/dogs-planet run build` | Superato |
+| `pnpm --filter @workspace/dogs-planet test` | 14/14 superati |
+| Entrambe le migrazioni SQL originali su DB vuoto + `tests/db/checks.sql` | Superati in un'unica transazione, interamente annullata prima dell'inizializzazione reale |
+| Applicazione effettiva migrazioni | `0001_init.sql` e `0002_documento_completo.sql` registrate |
+| Avvio workflow registrato | Server avviato e anteprima visibile |
+| Browser homepage | Sito originale, logo e immagini caricati; nessun errore console rilevato |
+| `/login`, `/account`, `/admin` | Documento client servito correttamente; non equivale a verifica delle schermate autenticate |
+| API health, impostazioni e servizi pubblici | HTTP 200; health `ok: true` |
+| API statistiche admin senza sessione | HTTP 401 |
+| Manifest PWA e service worker | HTTP 200 |
+| Dati iniziali | Un Admin con cambio password obbligatorio, 11 servizi, 3 operatori; zero cani e appuntamenti |
+
+Non sono stati eseguiti tutti i flussi autenticati della checklist, acquisti reali, invio SMTP/push o installazione PWA su dispositivi fisici. Nessun servizio esterno è stato collegato e non è stata eseguita alcuna pubblicazione in produzione.
+
+---
+
+## Resoconto storico fornito dal repository
+
 Data esecuzione: 22/11/2026 · ambiente di sviluppo PromoApp (Linux, Node.js 22, PostgreSQL 16).
 
 > Limite dell'ambiente: in questo ambiente non è possibile scaricare i pacchetti npm, quindi **l'applicazione non è stata avviata** (server e interfaccia non sono stati provati nel browser). I test end-to-end vanno eseguiti su Replit dopo `npm install` con la checklist in fondo. Nessun test è dichiarato superato se non è stato eseguito.

@@ -13,8 +13,8 @@ export default {
         },
       },
       fontFamily: {
-        sans: ["Nunito Sans", "system-ui", "sans-serif"],
-        display: ["Montserrat", "system-ui", "sans-serif"],
+        sans: ["Poppins", "system-ui", "sans-serif"],
+        display: ["Poppins", "system-ui", "sans-serif"],
       },
       boxShadow: { soft: "0 8px 30px -12px rgba(11,61,145,.25)" },
     },

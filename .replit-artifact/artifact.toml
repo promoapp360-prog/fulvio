@@ -1,0 +1,23 @@
+kind = "web"
+previewPath = "/"
+title = "Dog’s Planet"
+description = "Codice originale Dog’s Planet: sito, PWA, area clienti e gestionale. Progetto Promo App."
+version = "1.0.0"
+id = "artifacts/dogs-planet"
+router = "path"
+
+[[services]]
+name = "web"
+paths = ["/", "/api"]
+localPort = 18633
+
+[services.development]
+run = "pnpm --filter @workspace/dogs-planet run dev"
+
+[services.production]
+build = ["pnpm", "--filter", "@workspace/dogs-planet", "run", "build"]
+run = "pnpm --filter @workspace/dogs-planet run start"
+
+[services.env]
+PORT = "18633"
+BASE_PATH = "/"

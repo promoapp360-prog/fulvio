@@ -5,3 +5,5 @@ backups
 .env
 *.log
 .DS_Store
+.replit-artifact/artifact.edit.toml
+/generated-artifacts/

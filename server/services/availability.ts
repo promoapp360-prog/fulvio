@@ -67,7 +67,7 @@ async function busyIntervals(operatorId: number, day: string, bufferMin: number,
   const from = romeToDate(day, "00:00"), to = romeToDate(addDays(day, 1), "00:00");
   const statuses = blockPending ? BLOCKING_STATUSES : ["confermata", "attesa_pagamento"];
   const rows = await tx.select().from(appointments).where(and(
-    eq(appointments.operatorId, operatorId), inArray(appointments.status, statuses as string[]),
+    eq(appointments.operatorId, operatorId), inArray(appointments.status, statuses as (typeof appointments.$inferSelect.status)[]),
     lt(appointments.startAt, to), gt(appointments.endAt, from),
     excludeId ? ne(appointments.id, excludeId) : sql`true`,
   ));

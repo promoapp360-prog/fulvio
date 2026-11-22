@@ -47,12 +47,12 @@ docs/              guida al gestionale ed esiti dei test
 | Secret | Valore |
 |---|---|
 | `SESSION_SECRET` | stringa lunga e casuale |
-| `ADMIN_INITIAL_PASSWORD` | `Fulvio` (password temporanea del primo accesso) |
+| `ADMIN_INITIAL_PASSWORD` | password iniziale nuova, dedicata al progetto, da inserire esclusivamente nei Secrets |
 | `ADMIN_EMAIL` | dogsplanetcernusco@gmail.com |
 | `PUBLIC_URL` | indirizzo pubblico del sito, es. `https://dogsplanet.it` |
 
 4. **Run**. Al primo avvio vengono create tabelle, l'amministratore **username `Admin`**, gli 11 servizi (senza prezzi), gli operatori Enmanuel, Martina e Ilaria con turni e competenze, le pagine del sito, i template email.
-5. Vai su `/login`, entra con `Admin` / `Fulvio`: il sistema **obbliga a scegliere una nuova password**. Dopo il cambio puoi eliminare `ADMIN_INITIAL_PASSWORD` dai Secrets.
+5. Vai su `/login`, entra con `Admin` e la password configurata nei Secrets: il sistema **obbliga a scegliere una nuova password**. Dopo il cambio puoi eliminare `ADMIN_INITIAL_PASSWORD` dai Secrets.
 
 > Senza `ADMIN_INITIAL_PASSWORD` non viene creato nessun amministratore: nessuna credenziale predefinita insicura. La password non è salvata in chiaro né nel repository né nel database (solo hash Argon2id).
 
@@ -75,7 +75,17 @@ I job (coda email, promemoria, richiami, scadenze punti) girano ogni ora mentre 
 
 - Modifiche su GitHub → in Replit **Git → Pull**. Modifiche su Replit → **Git → Commit → Push**.
 - Niente force push; evitare di modificare gli stessi file in contemporanea nei due posti.
-- Modifiche al database: **aggiungere** un nuovo file `migrations/000N_descrizione.sql` (mai modificare quelli già applicati) e aggiornare `shared/schema.ts`. Le migrazioni si applicano da sole, una volta sola.
+- Modifiche al database: **aggiungere** un nuovo file `migrations/000N_descrizione.sql` (mai modificare quelli già applicati) e aggiornare `shared/schema.ts`. Le migrazioni si applicano da sole, una volta sola, in sviluppo. Per il PostgreSQL gestito da Replit, la pubblicazione applica le modifiche di schema alla produzione; l'app non esegue DDL all'avvio in produzione.
+
+### Importazione nell'applicazione Replit registrata
+
+In questo progetto il codice originale è in `artifacts/dogs-planet/`, senza riorganizzare `client/`, `server/`, `shared/`, migrazioni o test. Il workflow **artifacts/dogs-planet: web** avvia sia Express sia Vite sulla porta assegnata da Replit e serve sito e API dalla radice dell'anteprima.
+
+Dal progetto Replit usare `pnpm --filter @workspace/dogs-planet run dev` (gestito dal workflow), `run check`, `run build` e `test`. Dalla directory dell'app usare `pnpm run <comando>`. Il nome del pacchetto è stato adattato al workspace, il codice dell'app non è stato ricostruito.
+
+Vite e il relativo plugin React sono aggiornati perché la versione originale era bloccata dal controllo di sicurezza dei pacchetti. Sono stati corretti errori TypeScript nelle API originali; marchio, immagini, pagine e funzionalità sono conservati. Il font è Poppins come richiesto.
+
+Database e Secrets devono appartenere esclusivamente a Dog's Planet. Non importare database, password o account da anteprime di chat o altri clienti. Stripe, SMTP, push e storage esterno richiedono configurazione dedicata e autorizzazione. Nessuna pubblicazione in produzione senza conferma.
 
 ## 5. Comandi
 
