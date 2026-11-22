@@ -1,22 +1,43 @@
-import { get, post } from "./api";
+import { post } from "./api";
+import { deviceInfo, registerPwa } from "./pwa";
 
-export const pushSupported = () => "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
-
-function urlB64ToUint8Array(base64: string) {
-  const padding = "=".repeat((4 - (base64.length % 4)) % 4);
-  const raw = atob((base64 + padding).replace(/-/g, "+").replace(/_/g, "/"));
-  return Uint8Array.from([...raw].map((c) => c.charCodeAt(0)));
+export const pushSupported = () => deviceInfo().push;
+function keyBytes(base64: string) {
+  const raw = atob(base64.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - base64.length % 4) % 4));
+  const bytes = Uint8Array.from(raw, c => c.charCodeAt(0));
+  if (bytes.length !== 65 || bytes[0] !== 4) throw new Error("Configurazione notifiche non valida.");
+  return bytes;
+}
+export async function pushStatus() {
+  const reg = await registerPwa();
+  const sub = await reg.pushManager.getSubscription();
+  return post<{ configured: boolean; preference: boolean; subscribed: boolean }>("/api/account/push/status", { endpoint: sub?.endpoint || null });
 }
 
-/** Chiede il permesso e registra la sottoscrizione push dell'utente collegato. */
-export async function enablePush() {
-  if (!pushSupported()) throw new Error("Notifiche non supportate su questo dispositivo");
-  const s = await get<any>("/api/public/settings");
-  if (!s.pushPublicKey) throw new Error("Le notifiche push non sono ancora configurate dal salone");
-  const perm = await Notification.requestPermission();
-  if (perm !== "granted") throw new Error("Permesso negato: abilita le notifiche nelle impostazioni del browser");
-  const reg = (await navigator.serviceWorker.getRegistration()) || (await navigator.serviceWorker.register("/sw.js"));
-  await navigator.serviceWorker.ready;
-  const sub = (await reg.pushManager.getSubscription()) || (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64ToUint8Array(s.pushPublicKey) }));
-  await post("/api/account/push/subscribe", sub.toJSON());
+/** Solo dal click esplicito. La richiesta permesso precede qualsiasi attesa di rete. */
+export async function enablePush(publicKey: string | null) {
+  if (!pushSupported()) throw new Error("Su iPhone apri prima l’app dalla schermata Home; negli altri casi usa un browser compatibile.");
+  if (!publicKey) throw new Error("Le notifiche push non sono ancora configurate dal salone.");
+  const applicationServerKey = keyBytes(publicKey);
+  if (Notification.permission === "denied") throw new Error("Permesso bloccato: puoi modificarlo nelle impostazioni del browser.");
+  const permissionRequest = Notification.permission === "granted" ? Promise.resolve("granted") : Notification.requestPermission();
+  const permission = await permissionRequest;
+  if (permission !== "granted") throw new Error("Notifiche non autorizzate. Puoi continuare a usare l’area personale.");
+  const reg = await registerPwa();
+  const old = await reg.pushManager.getSubscription();
+  const subscription = old || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey });
+  try { await post("/api/account/push/subscribe", subscription.toJSON()); }
+  catch (error) {
+    if (!old) await subscription.unsubscribe().catch(() => false);
+    throw error;
+  }
+}
+
+export async function disablePush(currentDeviceSubscribed: boolean) {
+  await post("/api/account/push/disable");
+  // Non tocca un'eventuale sottoscrizione locale appartenente a un altro utente.
+  if (currentDeviceSubscribed && "serviceWorker" in navigator) {
+    const reg = await navigator.serviceWorker.getRegistration();
+    await (await reg?.pushManager.getSubscription())?.unsubscribe().catch(() => false);
+  }
 }

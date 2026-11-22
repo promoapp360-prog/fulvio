@@ -38,8 +38,8 @@ export function ServicesList({ compact = false }: { compact?: boolean }) {
           <div className="grid gap-4 md:grid-cols-2">
             {data!.filter((s) => s.category === c).map((s) => (
               <article key={s.id} className="card">
-                <div className="flex items-start justify-between gap-3">
-                  <h3 className="text-lg font-bold">{s.name}</h3>
+                <div className="flex min-w-0 flex-col items-start gap-2 sm:flex-row sm:justify-between sm:gap-3">
+                  <h3 className="min-w-0 break-words text-lg font-bold">{s.name}</h3>
                   <span className="shrink-0 rounded-full bg-brand-sky px-3 py-1 text-sm font-bold text-brand-navy">{priceLabel(s)}</span>
                 </div>
                 {s.description && <p className="mt-2 text-sm text-slate-600">{s.description}</p>}

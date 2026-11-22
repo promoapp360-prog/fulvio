@@ -35,10 +35,10 @@ export function PublicLayout({ children }: { children: React.ReactNode }) {
   const announcement = s?.site?.announcement;
 
   return (
-    <div className="flex min-h-screen flex-col pb-[calc(4rem+env(safe-area-inset-bottom))] md:pb-0">
+    <div className="public-site flex min-h-screen flex-col pb-[calc(4rem+env(safe-area-inset-bottom))] md:pb-0">
       <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-50 focus:rounded focus:bg-white focus:p-2">Vai al contenuto</a>
       {announcement && <div className="bg-brand-turquoise px-4 py-2 text-center text-sm font-bold text-white">{announcement}</div>}
-      <header className="sticky top-0 z-40 border-b border-sky-100 bg-white/95 backdrop-blur">
+      <header className="sticky top-0 z-40 border-b border-sky-100 bg-[#f4fbff]/95 backdrop-blur">
         <div className="container-dp flex h-[4.5rem] items-center justify-between gap-4 md:h-20">
           <div className="flex shrink-0 items-center gap-6">
             <Link href="/" aria-label="Dog's Planet – home"><Logo className="h-12 md:h-14" /></Link>

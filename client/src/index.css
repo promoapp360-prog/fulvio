@@ -12,6 +12,7 @@
 @layer components {
   .container-dp { @apply mx-auto w-full max-w-6xl px-4 sm:px-6; }
   .btn { @apply inline-flex items-center justify-center gap-2 rounded-full px-5 py-2.5 text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-50; }
+  .public-site .btn { min-height: 44px; }
   .btn-primary { @apply btn bg-brand-turquoise text-white shadow-soft hover:bg-[#00a3b3]; }
   .btn-navy { @apply btn bg-brand-navy text-white hover:bg-[#09337a]; }
   .btn-outline { @apply btn border-2 border-brand-navy text-brand-navy hover:bg-brand-sky; }

@@ -1,9 +1,14 @@
 // Service worker Dog's Planet: cache dell'app shell e degli asset statici, rete per le API, notifiche push.
-const VERSION = "dp-v4-homepage";
-const SHELL = ["/", "/manifest.webmanifest", "/brand/logo.webp", "/brand/logo.png", "/icons/icon-192.png", "/offline.html"];
+const VERSION = "dp-v5-install";
+const SHELL = ["/", "/manifest.webmanifest", "/brand/logo.webp", "/brand/logo.png", "/icons/icon-192.png", "/icons/icon-512.png", "/offline.html"];
 
 self.addEventListener("install", (e) => {
-  e.waitUntil(caches.open(VERSION).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(VERSION).then(async (c) => {
+    await c.addAll(SHELL);
+    const html = await (await c.match("/")).text();
+    const bundles = [...html.matchAll(/(?:src|href)=["'](\/assets\/[^"']+\.(?:js|css))["']/g)].map(match => match[1]);
+    if (bundles.length) await c.addAll([...new Set(bundles)]);
+  }).then(() => self.skipWaiting()));
 });
 
 self.addEventListener("activate", (e) => {
@@ -27,7 +32,13 @@ self.addEventListener("fetch", (e) => {
   if (/^\/(?:src|@[^/]*|node_modules)(?:\/|$)/.test(url.pathname) || /\.(?:tsx?|jsx)$/.test(url.pathname)) return;
   if (req.mode === "navigate") {
     e.respondWith(fetch(req, { cache: "no-cache" }).then((r) => remember(e, "/", r))
-      .catch(() => caches.match("/").then((r) => r || caches.match("/offline.html"))));
+      .catch(async () => {
+        const shell = await caches.match("/");
+        // In sviluppo i moduli Vite non sono archiviati: mostra la vera pagina
+        // offline, non uno schermo vuoto che tenta di avviare moduli mancanti.
+        if (shell && !(await shell.clone().text()).includes("/@vite/client")) return shell;
+        return (await caches.match("/offline.html")) || Response.error();
+      }));
     return;
   }
   if (/\.(js|css|png|webp|jpg|svg|ico|woff2?)$/.test(url.pathname) || url.pathname.startsWith("/files/")) {
@@ -51,7 +62,11 @@ self.addEventListener("push", (e) => {
 
 self.addEventListener("notificationclick", (e) => {
   e.notification.close();
-  const url = (e.notification.data && e.notification.data.url) || "/";
+  let url = location.origin + "/";
+  try {
+    const requested = new URL((e.notification.data && e.notification.data.url) || "/", location.origin);
+    if (requested.origin === location.origin) url = requested.href;
+  } catch { /* Payload non valido: apri solo la home di Dog's Planet. */ }
   e.waitUntil(self.clients.matchAll({ type: "window" }).then((list) => {
     for (const c of list) if ("focus" in c) { c.navigate(url); return c.focus(); }
     return self.clients.openWindow(url);

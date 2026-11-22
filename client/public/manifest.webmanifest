@@ -1,4 +1,5 @@
 {
+  "id": "/",
   "name": "Dog's Planet – Pet Grooming",
   "short_name": "Dog's Planet",
   "description": "Toelettatura, self-service, pensione casalinga e Fidelity Card a Cernusco sul Naviglio",
@@ -7,6 +8,7 @@
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
+  "prefer_related_applications": false,
   "background_color": "#E6F7FF",
   "theme_color": "#0B3D91",
   "icons": [

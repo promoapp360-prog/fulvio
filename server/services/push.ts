@@ -3,9 +3,10 @@ import { eq, inArray } from "drizzle-orm";
 import { db } from "../db";
 import { pushSubscriptions, pushLog } from "../../shared/schema";
 import { BUSINESS } from "../../shared/constants";
+import { pushConfiguration } from "./push-config";
 
-const enabled = !!(process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY);
-if (enabled) webpush.setVapidDetails(`mailto:${BUSINESS.email}`, process.env.VAPID_PUBLIC_KEY!, process.env.VAPID_PRIVATE_KEY!);
+const enabled = pushConfiguration.configured;
+if (enabled) webpush.setVapidDetails(`mailto:${BUSINESS.email}`, pushConfiguration.publicKey!, process.env.VAPID_PRIVATE_KEY!.trim());
 
 export const pushEnabled = () => enabled;
 

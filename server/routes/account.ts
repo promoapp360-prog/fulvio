@@ -1,10 +1,10 @@
-import { Router } from "express";
+import { Router, type Request } from "express";
 import { z } from "zod";
 import { and, asc, desc, eq, inArray, isNull, sql, gte } from "drizzle-orm";
 import { db } from "../db";
 import {
   users, dogs, dogCustomFields, appointments, services, operators, payments, loyaltyCards, loyaltyTransactions, loyaltyRewards,
-  boardingRequests, orders, orderItems, products, notifications, pushSubscriptions, promotions, appointmentEvents,
+  boardingRequests, orders, orderItems, products, notifications, pushSubscriptions, promotions, appointmentEvents, auditLog,
 } from "../../shared/schema";
 import { requireAuth, publicUser } from "../auth";
 import { createRequest, applyAction, paidTotal, logEvent } from "../services/appointments";
@@ -21,6 +21,7 @@ import { notifyStaff } from "../services/notify";
 import { audit } from "../services/audit";
 import { h, HttpError, id, zOptStr, zOptDay, zDay, zTime } from "../util";
 import { romeToDate, todayRome, fmtRome } from "../time";
+import { pushConfiguration, validPushEndpoint } from "../services/push-config";
 
 const r = Router();
 r.use(requireAuth);
@@ -353,10 +354,29 @@ r.post("/orders", h(async (req, res) => {
   res.status(201).json({ order, paymentUrl: url });
 }));
 
+async function recordPushConsent(tx: any, req: Request, granted: boolean) {
+  await tx.insert(auditLog).values({
+    actorId: req.user!.id, action: "push_consent", entity: "user", entityId: String(req.user!.id),
+    data: { granted, source: "area_personale_click", purpose: "conferme_e_promemoria_appuntamenti", version: "1" },
+    ip: String(req.ip || "").slice(0, 64),
+  });
+}
+
+/** Controllo senza permessi tecnici, sottoscrizioni automatiche o modifiche ai dati. */
+r.post("/push/status", h(async (req, res) => {
+  const { endpoint } = z.object({ endpoint: z.string().url().max(1000).nullable() }).parse(req.body);
+  const matches = endpoint ? await db.select({ id: pushSubscriptions.id }).from(pushSubscriptions)
+    .where(and(eq(pushSubscriptions.userId, req.user!.id), eq(pushSubscriptions.endpoint, endpoint))).limit(1) : [];
+  res.json({ configured: pushConfiguration.configured, preference: req.user!.commPush, subscribed: matches.length > 0 });
+}));
+
 /** Disattiva le notifiche push di tutti i dispositivi dell'utente. */
 r.post("/push/disable", h(async (req, res) => {
-  await db.delete(pushSubscriptions).where(eq(pushSubscriptions.userId, req.user!.id));
-  await db.update(users).set({ commPush: false }).where(eq(users.id, req.user!.id));
+  await db.transaction(async (tx) => {
+    await tx.delete(pushSubscriptions).where(eq(pushSubscriptions.userId, req.user!.id));
+    await tx.update(users).set({ commPush: false, updatedAt: new Date() }).where(eq(users.id, req.user!.id));
+    await recordPushConsent(tx, req, false);
+  });
   res.json({ ok: true });
 }));
 
@@ -369,9 +389,17 @@ r.post("/notifications/read", h(async (req, res) => {
   res.json({ ok: true });
 }));
 r.post("/push/subscribe", h(async (req, res) => {
-  const d = z.object({ endpoint: z.string().url().max(1000), keys: z.object({ p256dh: z.string().max(200), auth: z.string().max(100) }) }).parse(req.body);
-  await db.insert(pushSubscriptions).values({ userId: req.user!.id, endpoint: d.endpoint, p256dh: d.keys.p256dh, auth: d.keys.auth })
-    .onConflictDoUpdate({ target: pushSubscriptions.endpoint, set: { userId: req.user!.id, p256dh: d.keys.p256dh, auth: d.keys.auth } });
+  if (!pushConfiguration.configured) throw new HttpError(503, "Le notifiche push non sono ancora disponibili. Le comunicazioni restano nell’area personale.");
+  const d = z.object({
+    endpoint: z.string().url().max(1000).refine(validPushEndpoint, "Servizio push non supportato"),
+    keys: z.object({ p256dh: z.string().regex(/^[A-Za-z0-9_-]{86,88}={0,2}$/), auth: z.string().regex(/^[A-Za-z0-9_-]{22,24}={0,2}$/) }),
+  }).parse(req.body);
+  await db.transaction(async (tx) => {
+    await tx.insert(pushSubscriptions).values({ userId: req.user!.id, endpoint: d.endpoint, p256dh: d.keys.p256dh, auth: d.keys.auth })
+      .onConflictDoUpdate({ target: pushSubscriptions.endpoint, set: { userId: req.user!.id, p256dh: d.keys.p256dh, auth: d.keys.auth } });
+    await tx.update(users).set({ commPush: true, updatedAt: new Date() }).where(eq(users.id, req.user!.id));
+    await recordPushConsent(tx, req, true);
+  });
   res.json({ ok: true });
 }));
 r.post("/push/unsubscribe", h(async (req, res) => {

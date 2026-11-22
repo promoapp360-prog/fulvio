@@ -1,3 +1,4 @@
+import { pushConfiguration } from "./push-config";
 import { db } from "../db";
 import { settings } from "../../shared/schema";
 import { sql } from "drizzle-orm";
@@ -121,7 +122,9 @@ export async function publicSettings() {
     cancellation: { cancelHours: s.cancellation.cancelHours, rescheduleHours: s.cancellation.rescheduleHours, depositPolicy: s.cancellation.depositPolicy },
     loyaltyRules: { pointValueCents: s.loyalty.pointValueCents, minRedeemPoints: s.loyalty.minRedeemPoints, expiryMode: s.loyalty.expiryMode },
     boarding: s.boarding,
-    pushPublicKey: process.env.VAPID_PUBLIC_KEY || null,
+    pushConfigured: pushConfiguration.configured,
+    pushPublicKey: pushConfiguration.publicKey,
+    emailConfigured: !!process.env.SMTP_HOST,
     onlinePayments: !!process.env.STRIPE_SECRET_KEY && s.payments.onlineEnabled,
   };
 }

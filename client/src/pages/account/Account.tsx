@@ -9,7 +9,7 @@ import { get, post, patch, del } from "@/lib/api";
 import { useMe, useLogout } from "@/lib/auth";
 import { usePublicSettings } from "@/lib/settings";
 import { fmtLong, fmtDate, fmtDay, fmtDateTime, todayISO } from "@/lib/format";
-import { enablePush, pushSupported } from "@/lib/push";
+import PushPreferences from "@/components/PushPreferences";
 import { euro, SIZE_LABELS, PAYMENT_METHODS, PAYMENT_KINDS, ORDER_STATUS, BOARDING_STATUS, STATUS_COLORS, LOYALTY_KINDS } from "@shared/constants";
 
 const NAV = [
@@ -41,9 +41,9 @@ export default function AccountArea() {
       <div className="grid gap-6 lg:grid-cols-[220px_1fr]">
         <nav className="-mx-4 flex gap-1 overflow-x-auto px-4 lg:mx-0 lg:flex-col lg:px-0" aria-label="Area personale">
           {NAV.map((n) => (
-            <Link key={n.href} href={n.href} className={`flex shrink-0 items-center gap-2 rounded-xl px-3 py-2 text-sm font-bold ${loc === n.href ? "bg-brand-navy text-white" : "text-brand-navy hover:bg-brand-sky"}`}><n.icon size={16} />{n.label}</Link>
+            <Link key={n.href} href={n.href} className={`flex min-h-11 shrink-0 items-center gap-2 rounded-xl px-3 py-2 text-sm font-bold ${loc === n.href ? "bg-brand-navy text-white" : "text-brand-navy hover:bg-brand-sky"}`}><n.icon size={16} />{n.label}</Link>
           ))}
-          <button onClick={logout} className="flex shrink-0 items-center gap-2 rounded-xl px-3 py-2 text-sm font-bold text-slate-500 hover:bg-slate-100"><LogOut size={16} /> Esci</button>
+          <button onClick={logout} className="flex min-h-11 shrink-0 items-center gap-2 rounded-xl px-3 py-2 text-sm font-bold text-slate-500 hover:bg-slate-100"><LogOut size={16} /> Esci</button>
         </nav>
         <div className="min-w-0">
           <Switch>
@@ -78,6 +78,7 @@ function Overview() {
   if (isLoading) return <Spinner />;
   return (
     <div className="grid gap-4 md:grid-cols-2">
+      <PushPreferences compact />
       <div className="card md:col-span-2">
         <h2 className="mb-2 font-bold">Prossimo appuntamento</h2>
         {data?.next ? (
@@ -351,7 +352,7 @@ function Profile() {
   const save = async (e: React.FormEvent) => {
     e.preventDefault(); setErr(null);
     try {
-      const fields = ["firstName", "lastName", "phone", "address", "city", "province", "cap", "country", "birthDate", "commEmail", "commPush", "commWhatsapp", "commRecall", "consentMarketing"];
+      const fields = ["firstName", "lastName", "phone", "address", "city", "province", "cap", "country", "birthDate", "commEmail", "commWhatsapp", "commRecall", "consentMarketing"];
       const body = Object.fromEntries(fields.map((k) => [k, f[k] === "" ? null : f[k]]));
       const u = await patch("/api/account/profile", body); qc.setQueryData(["me"], u); toast("Profilo aggiornato");
     } catch (x) { setErr(x); }
@@ -374,21 +375,13 @@ function Profile() {
         </div>
         <h3 className="pt-2 font-bold">Comunicazioni e privacy</h3>
         <Check checked={!!f.commEmail} onChange={(v) => setF({ ...f, commEmail: v })} label="Ricevi conferme e promemoria via email" />
-        <Check checked={!!f.commPush} onChange={(v) => setF({ ...f, commPush: v })} label="Ricevi notifiche push sul dispositivo" />
         <Check checked={!!f.commWhatsapp} onChange={(v) => setF({ ...f, commWhatsapp: v })} label="Possiamo contattarti su WhatsApp (solo contatti diretti, nessun invio automatico)" />
         <Check checked={!!f.commRecall} onChange={(v) => setF({ ...f, commRecall: v })} label="Ricordami quando è il momento di un nuovo trattamento (richiamo periodico)" />
         <Check checked={!!f.consentMarketing} onChange={(v) => setF({ ...f, consentMarketing: v })} label="Acconsento a ricevere promozioni e novità (marketing)" />
         <ErrorBox error={err} />
         <button className="btn-primary">Salva</button>
       </form>
-      <div className="card space-y-3">
-        <h2 className="text-xl font-bold">Notifiche su questo dispositivo</h2>
-        <p className="text-sm text-slate-600">Le notifiche push si aggiungono alle email. Su iPhone funzionano solo dopo aver aggiunto l'app alla schermata Home (<Link href="/installa-app" className="underline">istruzioni</Link>) e aver autorizzato le notifiche.</p>
-        <div className="flex flex-wrap gap-2">
-          {pushSupported() ? <button className="btn-outline" onClick={async () => { try { await enablePush(); toast("Notifiche attivate"); } catch (e: any) { toast(e.message, "err"); } }}>Attiva notifiche push</button> : <p className="text-sm text-amber-700">Questo browser non supporta le notifiche push: installa l'app sulla schermata Home.</p>}
-          <button className="btn-ghost" onClick={async () => { await post("/api/account/push/disable"); toast("Notifiche push disattivate su tutti i dispositivi"); }}>Disattiva su tutti i dispositivi</button>
-        </div>
-      </div>
+      <PushPreferences />
       <form className="card space-y-3" onSubmit={async (e) => { e.preventDefault(); try { await post("/api/auth/change-password", pw); toast("Password aggiornata"); setPw({ current: "", password: "" }); } catch (x: any) { toast(x.message, "err"); } }}>
         <h2 className="text-xl font-bold">Cambia password</h2>
         <div className="grid gap-3 sm:grid-cols-2">

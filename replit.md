@@ -25,3 +25,6 @@ Progetto PromoApp: sito pubblico + PWA + area clienti + gestionale completo per 
 - CTA esatta: **Richiedi la prenotazione on Line**, con **on Line** turchese e leggibile sullo sfondo.
 - Il restyling autorizzato riguarda homepage, header e presentazione pubblica correlata: non riscrivere gestionale, autenticazione o dati.
 - Prima di consegnare modifiche grafiche, scorrere tutta la homepage su smartphone, tablet e desktop: controllare viso di Poppy, bordi residui, proporzioni, overflow, spazi vuoti, menu e barra dei contatti. Non basta verificare il primo schermo.
+- Integrare logo e illustrazioni senza fondi o cornici bianche incorporati. Per Poppy modificare solo lo sfondo/alfa e non ricostruire parti mancanti del cane.
+- Installazione PWA: su iPhone mostrare istruzioni reali, non falsi pulsanti; rispettare rinvio e installazione già confermata. Richiedere permessi push solo dopo consenso e click espliciti, mai al caricamento.
+- Non dichiarare operativi gli invii senza configurazione dedicata verificata. Web Push usa chiavi VAPID del progetto, non account di altri clienti; l'email rimane il canale principale previsto.

@@ -80,7 +80,8 @@ export default function Home() {
         </section>
       )}
 
-      <section data-home-section="services" className="container-dp home-section" aria-labelledby="services-title">
+      <section data-home-section="services" className="home-services-section home-section" aria-labelledby="services-title">
+        <div className="container-dp">
         <div className="home-section-heading">
           <div><p className="home-eyebrow">Un unico posto, tante attenzioni</p><h2 id="services-title">I nostri servizi</h2></div>
           <p>Dal primo bagnetto alla cura di ogni giorno. Trova quello che fa per voi.</p>
@@ -97,6 +98,7 @@ export default function Home() {
               </div>
             </Link>
           ))}
+        </div>
         </div>
       </section>
 

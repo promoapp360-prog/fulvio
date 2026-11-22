@@ -13,7 +13,7 @@ import { euro, SIZE_LABELS, WEEKDAYS } from "@shared/constants";
 import { useServices, useOperators } from "./Pages";
 
 const Step = ({ n, title, icon: Icon, children, done }: { n: number; title: string; icon: any; children: React.ReactNode; done?: boolean }) => (
-  <section className="card">
+  <section className="card min-w-0">
     <h2 className="mb-4 flex items-center gap-3 text-lg font-bold">
       <span className={`grid h-8 w-8 place-items-center rounded-full text-sm text-white ${done ? "bg-green-600" : "bg-brand-navy"}`}>{done ? "✓" : n}</span>
       <Icon size={18} className="text-brand-turquoise" /> {title}
@@ -116,7 +116,7 @@ function Wizard() {
 
   const slots: Record<string, number[]> = avail.data?.slots || {};
   return (
-    <div className="mx-auto grid max-w-4xl gap-5">
+    <div className="mx-auto grid min-w-0 max-w-4xl gap-5">
       <Step n={1} title="Seleziona il cane" icon={Dog} done={!!dogId}>
         <div className="flex flex-wrap gap-2">
           {dogs.map((d) => <button key={d.id} className={choice(dogId === d.id)} onClick={() => { setDogId(d.id); reset(3); }}>{d.name}<span className="block text-xs font-semibold text-slate-500">{d.breed || "—"} · taglia {SIZE_LABELS[d.size]?.toLowerCase()}</span></button>)}
@@ -153,11 +153,12 @@ function Wizard() {
 
       {operatorId && (
         <Step n={4} title="Data e orario" icon={CalendarDays} done={!!time}>
-          <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-2">
+          <p className="mb-3 text-xs leading-relaxed text-slate-500">Scorri le date disponibili, poi scegli un orario. La richiesta sarà valutata dal salone.</p>
+          <div aria-label="Date disponibili" className="flex min-w-0 max-w-full gap-2 overflow-x-auto overscroll-x-contain pb-3">
             {days.map((d) => {
               const wd = WEEKDAYS[weekdayISO(d)].slice(0, 3);
               return (
-                <button key={d} onClick={() => { setDate(d); setTime(null); }} className={`flex min-w-[64px] flex-col items-center rounded-2xl border-2 px-2 py-2 text-xs font-bold ${date === d ? "border-brand-turquoise bg-brand-sky text-brand-navy" : "border-slate-200"}`}>
+                <button key={d} aria-pressed={date === d} aria-label={`Scegli ${d}`} onClick={() => { setDate(d); setTime(null); }} className={`flex min-h-[76px] min-w-[68px] shrink-0 flex-col items-center justify-center rounded-2xl border-2 px-2 py-2 text-xs font-bold ${date === d ? "border-brand-turquoise bg-brand-sky text-brand-navy" : "border-slate-200"}`}>
                   <span className="uppercase text-slate-500">{wd}</span><span className="text-lg">{d.slice(8)}</span><span className="text-slate-500">{d.slice(5, 7)}</span>
                 </button>
               );
@@ -170,7 +171,7 @@ function Wizard() {
               ) : (
                 <>
                   <div className="grid grid-cols-4 gap-2 sm:grid-cols-8">
-                    {Object.keys(slots).map((t) => <button key={t} onClick={() => setTime(t)} className={`rounded-xl border-2 py-2 text-sm font-bold ${time === t ? "border-brand-turquoise bg-brand-turquoise text-white" : "border-slate-200 hover:border-brand-blue"}`}>{t}</button>)}
+                    {Object.keys(slots).map((t) => <button key={t} aria-pressed={time === t} onClick={() => setTime(t)} className={`min-h-11 rounded-xl border-2 py-2 text-sm font-bold ${time === t ? "border-brand-turquoise bg-brand-turquoise text-white" : "border-slate-200 hover:border-brand-blue"}`}>{t}</button>)}
                   </div>
                   <p className="mt-3 flex items-center gap-2 text-sm text-slate-600"><Clock size={14} /> Durata stimata {avail.data.durationMin} min
                     {avail.data.estimatedPriceCents != null && <> · prezzo indicativo {euro(avail.data.estimatedPriceCents)}</>}</p>

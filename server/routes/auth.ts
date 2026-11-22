@@ -47,7 +47,7 @@ r.post("/register", limiter, h(async (req, res) => {
   const { password: pw, ...data } = d;
   const user = await db.transaction(async (tx) => {
     const [u] = await tx.insert(users).values({
-      ...data, passwordHash: await hashPassword(pw), role: "customer", consentDate: new Date(), unsubscribeToken: crypto.randomBytes(24).toString("hex"),
+      ...data, passwordHash: await hashPassword(pw), role: "customer", commPush: false, consentDate: new Date(), unsubscribeToken: crypto.randomBytes(24).toString("hex"),
     }).returning();
     await tx.update(privacyContacts).set({ linkedUserId: u.id }).where(sql`lower(${privacyContacts.email}) = ${d.email}`);
     await recordConsent(tx, { userId: u.id, kind: "privacy", granted: true, source: "registrazione", req, policyVersion: await currentPolicyVersion("privacy") });

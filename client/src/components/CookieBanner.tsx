@@ -41,6 +41,7 @@ export default function CookieBanner() {
   const save = (analytics: boolean, marketing: boolean) => {
     const c: Consent = { necessary: true, analytics, marketing, date: new Date().toISOString() };
     try { localStorage.setItem(KEY, JSON.stringify(c)); } catch {}
+    window.dispatchEvent(new Event("dp:cookie-consent"));
     setConsent(c); setOpen(false);
   };
   if (!open) return null;

@@ -5,13 +5,13 @@ import { usePublicSettings } from "@/lib/settings";
 export function Logo({ className = "h-12", white = false }: { className?: string; white?: boolean }) {
   const { data: s } = usePublicSettings();
   const custom = white ? s?.brand?.logoWhiteUrl : s?.brand?.logoUrl;
-  if (custom) return <img src={custom} alt="Dog's Planet – Pet Grooming" className={`${className} w-auto`} />;
+  if (custom) return <img src={custom} alt="Dog's Planet – Pet Grooming" className={`${className} block max-w-full bg-transparent object-contain w-auto`} />;
   return white
-    ? <img src="/brand/logo-white.png" alt="Dog's Planet – Pet Grooming" className={`${className} w-auto`} />
+    ? <img src="/brand/logo-white.png" alt="Dog's Planet – Pet Grooming" className={`${className} block w-auto bg-transparent object-contain`} />
     : (
-      <picture>
+      <picture className="inline-flex shrink-0 bg-transparent">
         <source srcSet="/brand/logo.webp" type="image/webp" />
-        <img src="/brand/logo.png" alt="Dog's Planet – Pet Grooming" className={`${className} w-auto`} width={640} height={454} />
+        <img src="/brand/logo.png" alt="Dog's Planet – Pet Grooming" className={`${className} block w-auto bg-transparent object-contain`} width={640} height={454} />
       </picture>
     );
 }
@@ -22,11 +22,14 @@ const OVERRIDE_KEY: Record<MascotKind, string> = {
 };
 
 /** Poppy, mascotte ufficiale: stesso cane e accessori originali, senza frammenti della brand board. */
-export function Mascot({ kind, className = "h-32", alt, detail = false }: { kind: MascotKind; className?: string; alt?: string; detail?: boolean }) {
+export function Mascot({ kind, className = "h-32", alt }: { kind: MascotKind; className?: string; alt?: string; detail?: boolean }) {
   const { data: s } = usePublicSettings();
   const custom = s?.brand?.[OVERRIDE_KEY[kind]];
   if (custom) return <img src={custom} alt={alt ?? "Poppy, la mascotte di Dog's Planet"} loading="lazy" className={`${className} max-w-full w-auto object-contain`} />;
-  const asset = kind === "welcome" ? "mascotte-welcome" : `poppy-${kind}${detail ? "-detail" : ""}`;
+  // Il vecchio welcome è un ritaglio incompleto della brand board: non è
+  // recuperabile senza inventare parti del cane. Non mostrarlo come decorazione.
+  if (kind === "welcome") return null;
+  const asset = `poppy-${kind}-transparent`;
   return (
     <picture className="contents">
       <source srcSet={`/brand/${asset}.webp`} type="image/webp" />
