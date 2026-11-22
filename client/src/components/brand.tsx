@@ -11,7 +11,7 @@ export function Logo({ className = "h-12", white = false }: { className?: string
     : (
       <picture>
         <source srcSet="/brand/logo.webp" type="image/webp" />
-        <img src="/brand/logo.png" alt="Dog's Planet – Pet Grooming" className={`${className} w-auto`} width={490} height={307} />
+        <img src="/brand/logo.png" alt="Dog's Planet – Pet Grooming" className={`${className} w-auto`} width={900} height={638} />
       </picture>
     );
 }

@@ -44,7 +44,7 @@ export default function Home() {
             {s?.brand?.heroImageUrl ? <img src={s.brand.heroImageUrl} alt="Dog's Planet" className="aspect-[4/3] w-full rounded-[2.5rem] object-cover shadow-soft" /> : (
               <picture>
                 <source srcSet="/brand/hero.webp" type="image/webp" />
-                <img src="/brand/hero.jpg" alt="La mascotte di Dog's Planet sul prato" className="aspect-[4/3] w-full rounded-[2.5rem] object-cover shadow-soft" width={720} height={590} />
+                <img src="/brand/hero.jpg" alt="La mascotte di Dog's Planet sul prato" className="aspect-[4/3] w-full rounded-[2.5rem] object-cover shadow-soft" width={680} height={590} />
               </picture>
             )}
             <div className="absolute -bottom-6 left-1/2 w-[78%] -translate-x-1/2 rounded-3xl bg-white/95 p-4 shadow-soft backdrop-blur sm:left-auto sm:right-4 sm:w-64 sm:translate-x-0">

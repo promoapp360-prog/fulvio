@@ -100,7 +100,7 @@ Funzioni complete nel codice ma che richiedono dati o credenziali prima dell'uso
 - **Costi e zone di consegna** dello shop (Impostazioni → Shop e consegne): non preimpostati.
 - **Valore dei punti** Fidelity e regole di scadenza (Impostazioni → Fidelity): conversione disattivata finché non impostata.
 - **Testi legali** (privacy, cookie, condizioni): base da far verificare al consulente.
-- **Logo vettoriale originale**: il logo in uso è ricavato fedelmente dal brand board (PNG/WebP trasparente); per la stampa serve il file originale.
+- **Logo**: in uso il file ufficiale ad alta risoluzione fornito da Dog's Planet (PNG/WebP trasparente, versione bianca, icone PWA). Per stampe di grande formato resta consigliato il file vettoriale (SVG/AI/PDF).
 - **Applicativo privacy per la rubrica WhatsApp**: non sviluppato in questa fase come richiesto; il CRM e il database sono predisposti a riceverne i dati (Privacy e consensi → Contatti da importare).
 
 Contabilità gestionale e compensi collaboratori sono conteggi interni: non sostituiscono fatturazione elettronica, cedolini o adempimenti fiscali.
