@@ -1,9 +1,9 @@
 // Calcolo disponibilità agenda multioperatore.
-import { and, eq, gte, inArray, lte, lt, gt, isNull, or, ne, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, lte, lt, gt, isNull, isNotNull, or, ne, sql } from "drizzle-orm";
 import { db } from "../db";
 import {
   appointments, operatorAbsences, operatorServices, operatorShifts, operators, services, serviceVariants, serviceSupplements,
-  BLOCKING_STATUSES, type Dog,
+  BLOCKING_STATUSES, guestBookings, type Dog,
 } from "../../shared/schema";
 import { getSettings } from "./settings";
 import { addDays, dateToRome, romeToDate, toMin, fromMin, weekdayOf } from "../time";
@@ -42,6 +42,19 @@ export async function compatibleOperators(serviceId: number, onlineOnly: boolean
   return rows.map((r: any) => r.op);
 }
 
+/** Gli operatori devono essere abilitati a ciascuno dei servizi richiesti. */
+export async function compatibleOperatorsForServices(serviceIds: number[], onlineOnly = true, tx: any = db) {
+  const ids = [...new Set(serviceIds)];
+  if (!ids.length) return [];
+  const lists = await Promise.all(ids.map((id) => compatibleOperators(id, onlineOnly, tx)));
+  const allowed = new Set(lists[0].map((o: any) => o.id));
+  for (const list of lists.slice(1)) {
+    const current = new Set(list.map((o: any) => o.id));
+    for (const id of allowed) if (!current.has(id)) allowed.delete(id);
+  }
+  return lists[0].filter((o: any) => allowed.has(o.id));
+}
+
 
 /** Finestre lavorative di un operatore in un giorno (turni – pause – assenze – chiusure). */
 async function workingIntervals(operatorId: number, day: string, tx: any): Promise<Interval[]> {
@@ -63,7 +76,7 @@ async function workingIntervals(operatorId: number, day: string, tx: any): Promi
 }
 
 /** Intervalli occupati (in minuti, ora di Roma) per un operatore in un giorno. */
-async function busyIntervals(operatorId: number, day: string, bufferMin: number, excludeId: number | undefined, blockPending: boolean, tx: any): Promise<Interval[]> {
+async function busyIntervals(operatorId: number, day: string, bufferMin: number, excludeId: number | undefined, blockPending: boolean, tx: any, excludeGuestId?: number): Promise<Interval[]> {
   const from = romeToDate(day, "00:00"), to = romeToDate(addDays(day, 1), "00:00");
   const statuses = blockPending ? BLOCKING_STATUSES : ["confermata", "attesa_pagamento"];
   const rows = await tx.select().from(appointments).where(and(
@@ -71,8 +84,24 @@ async function busyIntervals(operatorId: number, day: string, bufferMin: number,
     lt(appointments.startAt, to), gt(appointments.endAt, from),
     excludeId ? ne(appointments.id, excludeId) : sql`true`,
   ));
-  return rows.map((r: any) => {
-    const s = dateToRome(r.startAt), e = dateToRome(r.endAt);
+  const guestStatuses = blockPending ? ["richiesta", "in_valutazione", "proposta", "confermata"] : ["confermata"];
+  const guests = await tx.select({
+    status:guestBookings.status,startAt:guestBookings.startAt,endAt:guestBookings.endAt,durationMin:guestBookings.durationMin,
+    proposedStartAt:guestBookings.proposedStartAt,proposedOperatorId:guestBookings.proposedOperatorId,
+  }).from(guestBookings).where(and(
+    inArray(guestBookings.status, guestStatuses),
+    or(
+      and(sql`${guestBookings.status}<>'proposta'`,eq(guestBookings.operatorId, operatorId),lt(guestBookings.startAt,to),gt(guestBookings.endAt,from)),
+      and(eq(guestBookings.status,"proposta"),eq(guestBookings.proposedOperatorId,operatorId),isNotNull(guestBookings.proposedStartAt),
+        lt(guestBookings.proposedStartAt,to),sql`${guestBookings.proposedStartAt}+(${guestBookings.durationMin} * interval '1 minute')>${from}`),
+    ),
+    excludeGuestId ? ne(guestBookings.id, excludeGuestId) : sql`true`,
+  ));
+  return [...rows, ...guests].map((r: any) => {
+    const guestProposal=r.status==="proposta"&&r.proposedStartAt;
+    const start=guestProposal?r.proposedStartAt:r.startAt;
+    const end=guestProposal?new Date(start.getTime()+r.durationMin*60_000):r.endAt;
+    const s = dateToRome(start), e = dateToRome(end);
     const sm = s.day === day ? toMin(s.time) : 0;
     const em = e.day === day ? toMin(e.time) : 24 * 60;
     return [sm - bufferMin, em + bufferMin] as Interval;
@@ -80,13 +109,13 @@ async function busyIntervals(operatorId: number, day: string, bufferMin: number,
 }
 
 /** Slot liberi per un operatore in un giorno. */
-export async function operatorSlots(operatorId: number, day: string, durationMin: number, opts: { excludeId?: number; tx?: any } = {}) {
+export async function operatorSlots(operatorId: number, day: string, durationMin: number, opts: { excludeId?: number; excludeGuestId?: number; tx?: any } = {}) {
   const tx = opts.tx || db;
   const s = await getSettings();
   const grid = Math.max(5, s.booking.slotMinutes);
   const work = await workingIntervals(operatorId, day, tx);
   if (!work.length) return [];
-  const busy = await busyIntervals(operatorId, day, s.booking.bufferMin, opts.excludeId, s.booking.requestBlocksSlot, tx);
+  const busy = await busyIntervals(operatorId, day, s.booking.bufferMin, opts.excludeId, s.booking.requestBlocksSlot, tx, opts.excludeGuestId);
   return freeSlots(work, busy, durationMin, grid).map(fromMin);
 }
 
@@ -111,15 +140,15 @@ export async function availability(serviceId: number, day: string, durationMin: 
  * Verifica (dentro una transazione con lock) che lo slot sia ancora libero e compatibile con i turni.
  * Il lock advisory per operatore+giorno serializza le richieste contemporanee sullo stesso slot.
  */
-export async function assertSlotFree(tx: any, operatorId: number, start: Date, durationMin: number, excludeId?: number) {
+export async function assertSlotFree(tx: any, operatorId: number, start: Date, durationMin: number, excludeId?: number, excludeGuestId?: number) {
   const { day, time } = dateToRome(start);
   await tx.execute(sql`SELECT pg_advisory_xact_lock(${operatorId}::int, ${Number(day.replaceAll("-", "")) % 2147483647}::int)`);
-  const slots = await operatorSlots(operatorId, day, durationMin, { excludeId, tx });
+  const slots = await operatorSlots(operatorId, day, durationMin, { excludeId, excludeGuestId, tx });
   // lo slot deve coincidere con l'inizio di una finestra libera (o comunque stare tutto in un intervallo libero)
   if (slots.includes(time)) return;
   const s = await getSettings();
   const work = await workingIntervals(operatorId, day, tx);
-  const busy = await busyIntervals(operatorId, day, s.booking.bufferMin, excludeId, s.booking.requestBlocksSlot, tx);
+  const busy = await busyIntervals(operatorId, day, s.booking.bufferMin, excludeId, s.booking.requestBlocksSlot, tx, excludeGuestId);
   const t = toMin(time);
   const inShift = work.some(([a, b]) => t >= a && t + durationMin <= b);
   const overlaps = busy.some(([x, y]) => t < y && t + durationMin > x);

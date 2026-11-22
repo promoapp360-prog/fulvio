@@ -13,6 +13,7 @@ import { h, HttpError, id, zOptStr } from "../../util";
 import { emailTemplates } from "../../../shared/schema";
 import { DEFAULT_TEMPLATES } from "../../services/templates";
 import { sendTemplate } from "../../services/email";
+import { legalSettingsSchema } from "../../../shared/legal";
 
 const r = Router();
 const upload = multer({
@@ -102,6 +103,10 @@ r.put("/settings/:key", h(async (req, res) => {
   const body = z.record(z.unknown()).parse(req.body);
   const allowed = Object.keys((DEFAULT_SETTINGS as any)[key]);
   const clean = Object.fromEntries(Object.entries(body).filter(([k]) => allowed.includes(k)));
+  if(key==="legal"){
+    const validated=legalSettingsSchema.parse(clean);
+    Object.assign(clean,validated);
+  }
   if (key === "booking") {
     const b = z.object({
       slotMinutes: z.number().int().min(5).max(240), bufferMin: z.number().int().min(0).max(120), minNoticeHours: z.number().int().min(0).max(720),

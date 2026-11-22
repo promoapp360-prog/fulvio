@@ -71,6 +71,7 @@ async function main() {
   // file caricati (Object Storage o cartella locale), con cache lunga
   app.get("/files/*", async (req, res) => {
     const key = (req.params as any)[0] as string;
+    if (key.startsWith("dog-photos/")) return res.status(404).end();
     const buf = await readStored(key).catch(() => null);
     if (!buf) return res.status(404).end();
     const ext = path.extname(key).slice(1);

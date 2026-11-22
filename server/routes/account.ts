@@ -1,10 +1,13 @@
 import { Router, type Request } from "express";
 import { z } from "zod";
-import { and, asc, desc, eq, inArray, isNull, sql, gte } from "drizzle-orm";
+import multer from "multer";
+import rateLimit from "express-rate-limit";
+import { and, asc, desc, eq, inArray, isNull, sql, gte, or } from "drizzle-orm";
 import { db } from "../db";
 import {
-  users, dogs, dogCustomFields, appointments, services, operators, payments, loyaltyCards, loyaltyTransactions, loyaltyRewards,
+  users, dogs, dogPhotos, appointmentPhotos, dogCustomFields, appointments, services, operators, payments, loyaltyCards, loyaltyTransactions, loyaltyRewards,
   boardingRequests, orders, orderItems, products, notifications, pushSubscriptions, promotions, appointmentEvents, auditLog,
+  guestCustomers, guestBookings, guestBookingEvents,
 } from "../../shared/schema";
 import { requireAuth, publicUser } from "../auth";
 import { createRequest, applyAction, paidTotal, logEvent } from "../services/appointments";
@@ -12,7 +15,7 @@ import { ensureCard, upcomingExpiries, redeem } from "../services/loyalty";
 import { recordConsent, currentPolicyVersion } from "../services/consents";
 import { priceItems, promoDiscount } from "../services/shop";
 import { sendTemplate } from "../services/email";
-import { deliveryQuote } from "../logic";
+import { deliveryQuote, normalizePhone } from "../logic";
 import { boardingEvents } from "../../shared/schema";
 import { euro } from "../../shared/constants";
 import { getSettings } from "../services/settings";
@@ -22,9 +25,48 @@ import { audit } from "../services/audit";
 import { h, HttpError, id, zOptStr, zOptDay, zDay, zTime } from "../util";
 import { romeToDate, todayRome, fmtRome } from "../time";
 import { pushConfiguration, validPushEndpoint } from "../services/push-config";
+import { storeDogPhoto, deleteStored, readStored } from "../services/storage";
+import { privacyPolicyVersion } from "../services/privacy-policy";
 
 const r = Router();
 r.use(requireAuth);
+const requestPhotoUpload=multer({storage:multer.memoryStorage(),limits:{fileSize:2*1024*1024,files:1}});
+const appointmentRequestLimiter=rateLimit({windowMs:60*60_000,limit:8,standardHeaders:true,legacyHeaders:false,message:{error:"Hai inviato diverse richieste. Riprova più tardi."}});
+const normalizeName=(v:string)=>v.normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim().toLocaleLowerCase("it-IT").replace(/\s+/g," ");
+
+/** L'associazione richiede accesso autenticato, email verificata e un click esplicito; non fonde né sovrascrive schede. */
+r.post("/guest-records/claim",h(async(req,res)=>{
+  const user=req.user!;
+  if(!user.emailVerifiedAt) throw new HttpError(403,"Verifica prima il tuo indirizzo email.");
+  const emailNormalized=user.email.trim().toLowerCase(),phoneNormalized=normalizePhone(user.phone);
+  if(!phoneNormalized||phoneNormalized.length<8)throw new HttpError(400,"Aggiungi un telefono al profilo prima di cercare le richieste ospite.");
+  const matched=await db.transaction(async tx=>{
+    const candidates=await tx.select().from(guestCustomers).where(or(eq(guestCustomers.emailNormalized,emailNormalized),eq(guestCustomers.phoneNormalized,phoneNormalized)));
+    const exact=candidates.filter((c:any)=>c.emailNormalized===emailNormalized&&c.phoneNormalized===phoneNormalized&&normalizeName(c.firstName)===normalizeName(user.firstName)&&normalizeName(c.lastName)===normalizeName(user.lastName));
+    const conflicts=candidates.filter((c:any)=>!exact.some((e:any)=>e.id===c.id)&&!c.linkedUserId);
+    for(const c of conflicts)await tx.update(guestCustomers).set({needsManualReview:true,reviewReason:"Possibile conflitto durante la richiesta di associazione dell’account.",updatedAt:new Date()}).where(eq(guestCustomers.id,c.id));
+    const eligible=exact.filter((c:any)=>!c.linkedUserId||c.linkedUserId===user.id);
+    let linked=0;
+    for(const c of eligible){
+      await tx.update(guestCustomers).set({linkedUserId:user.id,linkedAt:c.linkedAt||new Date(),emailVerifiedAt:c.emailVerifiedAt||new Date(),updatedAt:new Date()}).where(eq(guestCustomers.id,c.id));
+      const requests=await tx.select({id:guestBookings.id}).from(guestBookings).where(and(eq(guestBookings.guestCustomerId,c.id),or(isNull(guestBookings.claimedById),eq(guestBookings.claimedById,user.id))));
+      if(requests.length){
+        await tx.update(guestBookings).set({claimedById:user.id,claimedAt:new Date(),updatedAt:new Date()}).where(and(eq(guestBookings.guestCustomerId,c.id),or(isNull(guestBookings.claimedById),eq(guestBookings.claimedById,user.id))));
+        await tx.insert(guestBookingEvents).values(requests.map((x:any)=>({bookingId:x.id,actorId:user.id,action:"richiesta_ospite_associata_account_verificato",data:{emailVerified:true,ownerAction:true}})));
+        linked+=requests.length;
+      }
+    }
+    return {linked,manualReview:conflicts.length+exact.filter((c:any)=>c.linkedUserId&&c.linkedUserId!==user.id).length};
+  });
+  res.json({...matched,message:matched.linked?`${matched.linked} richieste ospite collegate. Le schede restano separate e non sono stati sovrascritti dati.`:"Non ci sono richieste ospite collegabili con i dati verificati del profilo."});
+}));
+
+r.get("/guest-records",h(async(req,res)=>{
+  const rows=await db.select({booking:guestBookings,serviceName:services.name}).from(guestBookings)
+    .innerJoin(services,eq(services.id,guestBookings.serviceId)).where(eq(guestBookings.claimedById,req.user!.id))
+    .orderBy(desc(guestBookings.createdAt)).limit(100);
+  res.json(rows);
+}));
 
 // ---------- profilo ----------
 const profileSchema = z.object({
@@ -130,6 +172,17 @@ r.delete("/dogs/:id", h(async (req, res) => {
   res.json({ ok: true });
 }));
 
+/** Foto cane privata: il cliente vede solo i propri cani. */
+r.get("/dogs/:id/photo",h(async(req,res)=>{
+  const dogId=id(req.params.id);
+  const [dog]=await db.select({id:dogs.id}).from(dogs).where(and(eq(dogs.id,dogId),eq(dogs.ownerId,req.user!.id)));
+  if(!dog) throw new HttpError(404,"Foto non trovata.");
+  const [photo]=await db.select().from(dogPhotos).where(eq(dogPhotos.dogId,dogId));
+  const data=photo?await readStored(photo.storageKey):null;
+  if(!data) throw new HttpError(404,"Foto non disponibile.");
+  res.set({"Content-Type":"image/webp","Cache-Control":"private, no-store","X-Content-Type-Options":"nosniff"}).send(data);
+}));
+
 // ---------- appuntamenti ----------
 r.get("/appointments", h(async (req, res) => {
   const rows = await db.select({
@@ -148,14 +201,31 @@ r.get("/appointments", h(async (req, res) => {
   }));
 }));
 
-r.post("/appointments", h(async (req, res) => {
-  const d = z.object({
-    dogId: z.number().int().positive(), serviceId: z.number().int().positive(), operatorId: z.number().int().positive().nullable(),
-    date: zDay, time: zTime, notes: zOptStr(1000),
-  }).parse(req.body);
-  if (d.date < todayRome()) throw new HttpError(400, "Data nel passato");
-  const app = await createRequest(req.user!.id, { ...d, start: romeToDate(d.date, d.time) });
-  res.status(201).json({ ok: true, id: app.id, message: "Richiesta inviata. Attendi la conferma di Dog's Planet." });
+r.post("/appointments",appointmentRequestLimiter,requestPhotoUpload.single("photo"),h(async(req,res)=>{
+  let payload:unknown;
+  try{payload=JSON.parse(String(req.body?.payload||"{}"));}catch{throw new HttpError(400,"Dati della richiesta non validi.");}
+  const d=z.object({
+    dogId:z.number().int().positive(),serviceIds:z.array(z.number().int().positive()).min(1).max(10),
+    operatorId:z.number().int().positive().nullable(),date:zDay,time:zTime,notes:z.string().trim().max(1000).default(""),
+    alternativeAvailability:z.string().trim().max(500).default(""),privacy:z.literal(true),
+    marketing:z.boolean().default(false),requestKey:z.string().uuid(),serviceId:z.number().int().positive().optional(),
+  }).parse(payload);
+  if(d.date<todayRome()) throw new HttpError(400,"Data nel passato.");
+  const serviceIds=d.serviceIds|| (d.serviceId?[d.serviceId]:[]);
+  if(!serviceIds.length)throw new HttpError(400,"Seleziona almeno un servizio.");
+  let stored:{key:string}|null=null;
+  try{
+    if(req.file) stored=await storeDogPhoto(req.file.buffer,req.file.mimetype);
+    const privacyVersion=await privacyPolicyVersion();
+    const marketingPolicyVersion=d.marketing?await currentPolicyVersion("marketing"):null;
+    const app=await createRequest(req.user!.id,{
+      ...d,serviceIds,start:romeToDate(d.date,d.time),privacyVersion,marketingPolicyVersion,request:req,
+      privacyIp:String(req.ip||"").slice(0,64)||null,
+      privacyUserAgent:String(req.get("user-agent")||"").slice(0,255)||null,
+      photoKey:stored?.key||null,
+    });
+    res.status(201).json({ok:true,id:app.id,message:"Richiesta inviata. Attendi la conferma di Dog’s Planet."});
+  }catch(e){if(stored?.key) await deleteStored(stored.key);throw e;}
 }));
 
 r.post("/appointments/:id/action", h(async (req, res) => {

@@ -1,27 +1,52 @@
 import { Router } from "express";
 import rateLimit from "express-rate-limit";
+import multer from "multer";
+import crypto from "node:crypto";
 import { z } from "zod";
 import { and, asc, eq, gte, isNull, lte, or, sql } from "drizzle-orm";
 import { db } from "../db";
 import {
-  pages, faqs, services, serviceVariants, serviceSupplements, operators, operatorServices, operatorShifts, products, promotions, dogs,
+  pages, faqs, services, serviceVariants, serviceSupplements, operators, operatorServices, operatorShifts, products, promotions, dogs, cookieChoices,
 } from "../../shared/schema";
 import { publicSettings } from "../services/settings";
 import { availability, quote } from "../services/availability";
 import { sendEmail, emailLayout, p } from "../services/email";
 import { getSettings } from "../services/settings";
 import { h, HttpError, id, zDay } from "../util";
-import { todayRome } from "../time";
+import { todayRome, addDays } from "../time";
 import { BUSINESS } from "../../shared/constants";
 import { users, productVariants, productCategories } from "../../shared/schema";
 import { recordConsent } from "../services/consents";
+import { storeDogPhoto, deleteStored } from "../services/storage";
+import { guestBookingSchema } from "../../shared/guest-booking";
+import { createGuestBooking, guestRequestStatus } from "../services/guest-bookings";
+import { privacyPolicyVersion } from "../services/privacy-policy";
+import { cookieConfiguration } from "../services/cookie-config";
 
 const r = Router();
+const guestPhotoUpload=multer({storage:multer.memoryStorage(),limits:{fileSize:2*1024*1024,files:1}});
+const guestBookingLimiter=rateLimit({windowMs:60*60_000,limit:5,standardHeaders:true,legacyHeaders:false,message:{error:"Hai inviato diverse richieste. Riprova più tardi o contatta il salone."}});
 
 // cache HTTP breve per i contenuti pubblici: riduce le query ripetute
 r.use((req, res, next) => { if (req.method === "GET") res.set("Cache-Control", "public, max-age=60"); next(); });
 
 r.get("/settings", h(async (_req, res) => res.json(await publicSettings())));
+
+r.get("/cookie-config",h(async(_req,res)=>{
+  res.set("Cache-Control","no-store");res.json(await cookieConfiguration());
+}));
+r.post("/cookie-choices",rateLimit({windowMs:60*60_000,limit:60,standardHeaders:true,legacyHeaders:false}),h(async(req,res)=>{
+  const input=z.object({
+    receiptId:z.string().uuid(),version:z.string().regex(/^[a-f0-9]{64}$/),
+    analytics:z.boolean(),marketing:z.boolean(),externalContent:z.boolean(),
+    action:z.enum(["accept","reject","customize"]),
+  }).parse(req.body);
+  const config=await cookieConfiguration();
+  if(input.version!==config.version)throw new HttpError(409,"Le informazioni cookie sono cambiate. Riapri le preferenze e riprova.");
+  const effective={...input,analytics:input.action!=="reject"&&config.analytics&&input.analytics,marketing:input.action!=="reject"&&config.marketing&&input.marketing,externalContent:input.action!=="reject"&&input.externalContent};
+  const [record]=await db.insert(cookieChoices).values(effective).returning({date:cookieChoices.createdAt});
+  res.status(201).json({...effective,date:record.date.toISOString(),necessary:true});
+}));
 
 r.get("/pages/:slug", h(async (req, res) => {
   const [pg] = await db.select().from(pages).where(and(eq(pages.slug, req.params.slug), eq(pages.published, true)));
@@ -81,6 +106,53 @@ r.get("/availability", h(async (req, res) => {
   if (!qt.service.bookable) throw new HttpError(400, "Servizio non prenotabile online");
   const slots = await availability(q.serviceId, q.date, qt.durationMin, q.operatorId ?? null, true);
   res.json({ durationMin: qt.durationMin, estimatedPriceCents: qt.estimatedPriceCents, supplements: qt.supplements, slots });
+}));
+
+/** Primo calendario: propone solo orari liberi per almeno un servizio attivo del catalogo. */
+r.get("/guest-slots", h(async (req,res)=>{
+  res.set("Cache-Control","no-store");
+  const {date}=z.object({date:zDay}).parse(req.query);
+  if(date<todayRome()) return res.json({date,slots:[]});
+  const settings=await getSettings();
+  if(date>addDays(todayRome(),settings.booking.maxDaysAhead)) return res.json({date,slots:[]});
+  const catalog=await db.select({id:services.id,durationMin:services.durationMin}).from(services)
+    .where(and(eq(services.active,true),eq(services.visible,true),eq(services.bookable,true))).orderBy(asc(services.sortOrder),asc(services.id));
+  const map=new Map<string,{time:string;serviceIds:number[];operatorIds:number[]}>();
+  for(const svc of catalog){
+    const slots=await availability(svc.id,date,svc.durationMin,null,true);
+    for(const [time,ids] of Object.entries(slots)){
+      const entry=map.get(time)||{time,serviceIds:[],operatorIds:[]};
+      entry.serviceIds.push(svc.id);entry.operatorIds.push(...ids);
+      map.set(time,entry);
+    }
+  }
+  res.json({date,slots:[...map.values()].map(x=>({...x,serviceIds:[...new Set(x.serviceIds)],operatorIds:[...new Set(x.operatorIds)]})).sort((a,b)=>a.time.localeCompare(b.time))});
+}));
+
+/** Invio ospite: non crea account; la transazione collega anagrafica, cane e richiesta. */
+r.post("/guest-bookings",guestBookingLimiter,guestPhotoUpload.single("photo"),h(async(req,res)=>{
+  let payload:unknown;
+  try{payload=JSON.parse(String(req.body?.payload||"{}"));}catch{throw new HttpError(400,"Dati della richiesta non validi.");}
+  const input=guestBookingSchema.parse(payload);
+  if(req.file&&req.file.size>2*1024*1024) throw new HttpError(413,"La foto deve essere inferiore a 2 MB prima della compressione.");
+  let stored:{key:string}|null=null;
+  try{
+    if(req.file) stored=await storeDogPhoto(req.file.buffer,req.file.mimetype);
+    const version=await privacyPolicyVersion();
+    const result=await createGuestBooking(input,{
+      ip:String(req.ip||"").slice(0,64)||null,userAgent:String(req.get("user-agent")||"").slice(0,255)||null,
+      privacyVersion:version,request:req,
+    },stored?.key||null,req.file?crypto.createHash("sha256").update(req.file.buffer).digest("hex"):null);
+    if(result.duplicate&&stored?.key) await deleteStored(stored.key);
+    res.status(result.duplicate?200:201).json({ok:true,id:result.id,duplicate:result.duplicate,trackingUrl:result.trackingUrl,
+      message:result.duplicate?"La richiesta risulta già ricevuta. Controlla l’email per gli aggiornamenti.":"Richiesta inviata. È in attesa di approvazione da Dog’s Planet."});
+  }catch(e){if(stored?.key) await deleteStored(stored.key);throw e;}
+}));
+
+r.get("/guest-requests/:id",h(async(req,res)=>{
+  res.set("Cache-Control","no-store");
+  const token=z.string().min(32).max(128).parse(req.query.token);
+  res.json(await guestRequestStatus(id(req.params.id),token));
 }));
 
 r.get("/products", h(async (req, res) => {

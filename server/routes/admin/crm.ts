@@ -5,6 +5,7 @@ import { and, asc, desc, eq, ilike, or, sql, inArray } from "drizzle-orm";
 import { db } from "../../db";
 import {
   users, dogs, dogCustomFields, appointments, services, operators, payments, loyaltyCards, loyaltyTransactions, boardingRequests, orders,
+  guestCustomers,guestDogs,guestBookings,dogPhotos,
 } from "../../../shared/schema";
 import { requirePerm, hashPassword, publicUser } from "../../auth";
 import { crud } from "../../crud";
@@ -15,9 +16,48 @@ import { averageGapDays, normalizePhone } from "../../logic";
 import { customerConsents, emailQueue, notifications } from "../../../shared/schema";
 import { audit } from "../../services/audit";
 import { sendTemplate } from "../../services/email";
+import { readStored } from "../../services/storage";
 import { h, HttpError, id, paging, zOptStr, zOptDay, toCsv } from "../../util";
 
 const r = Router();
+
+/** Anagrafiche ospiti separate dagli account; possibili conflitti evidenziati, mai uniti automaticamente. */
+r.get("/guest-customers",requirePerm("clienti"),h(async(req,res)=>{
+  const q=String(req.query.q||"").trim();
+  const rows=await db.select({
+    id:guestCustomers.id,firstName:guestCustomers.firstName,lastName:guestCustomers.lastName,email:guestCustomers.email,phone:guestCustomers.phone,
+    source:guestCustomers.source,createdAt:guestCustomers.createdAt,needsManualReview:guestCustomers.needsManualReview,reviewReason:guestCustomers.reviewReason,
+    emailVerifiedAt:guestCustomers.emailVerifiedAt,linkedUserId:guestCustomers.linkedUserId,marketingConsent:guestCustomers.marketingConsent,
+    dogs:sql<string>`(select string_agg(d.name || ' · ' || d.breed, ', ' order by d.name) from guest_dogs d where d.guest_customer_id=${guestCustomers.id})`,
+    lastRequest:sql<Date>`(select max(b.created_at) from guest_bookings b where b.guest_customer_id=${guestCustomers.id})`,
+    requests:sql<number>`(select count(*)::int from guest_bookings b where b.guest_customer_id=${guestCustomers.id})`,
+  }).from(guestCustomers).where(q?or(
+    ilike(guestCustomers.firstName,`%${q}%`),ilike(guestCustomers.lastName,`%${q}%`),
+    ilike(guestCustomers.email,`%${q}%`),ilike(guestCustomers.phone,`%${q}%`),
+    sql`exists(select 1 from guest_dogs d where d.guest_customer_id=${guestCustomers.id} and (d.name ilike ${"%"+q+"%"} or d.breed ilike ${"%"+q+"%"}))`,
+  ):undefined).orderBy(desc(guestCustomers.createdAt)).limit(200);
+  res.json({rows,total:rows.length});
+}));
+
+r.get("/guest-customers/:id",requirePerm("clienti"),h(async(req,res)=>{
+  const guestCustomerId=id(req.params.id);
+  const [customer]=await db.select().from(guestCustomers).where(eq(guestCustomers.id,guestCustomerId));
+  if(!customer) throw new HttpError(404,"Anagrafica ospite non trovata.");
+  const [ds,requests]=await Promise.all([
+    db.select().from(guestDogs).where(eq(guestDogs.guestCustomerId,guestCustomerId)).orderBy(asc(guestDogs.name)),
+    db.select({booking:guestBookings,serviceName:services.name,operatorName:operators.name}).from(guestBookings)
+      .innerJoin(services,eq(services.id,guestBookings.serviceId)).leftJoin(operators,eq(operators.id,guestBookings.operatorId))
+      .where(eq(guestBookings.guestCustomerId,guestCustomerId)).orderBy(desc(guestBookings.createdAt)).limit(100),
+  ]);
+  res.json({customer,dogs:ds.map(({photoKey:_privatePhotoKey,...dog})=>dog),requests:requests.map(x=>x.booking).map((b,i)=>({...b,serviceName:requests[i].serviceName,operatorName:requests[i].operatorName}))});
+}));
+
+r.get("/guest-dogs/:id/photo",requirePerm("clienti","richieste"),h(async(req,res)=>{
+  const [photo]=await db.select({storageKey:dogPhotos.storageKey}).from(dogPhotos).where(eq(dogPhotos.guestDogId,id(req.params.id)));
+  const data=photo?await readStored(photo.storageKey):null;
+  if(!data) throw new HttpError(404,"Foto non disponibile.");
+  res.set({"Content-Type":"image/webp","Cache-Control":"private, no-store","X-Content-Type-Options":"nosniff"}).send(data);
+}));
 
 // ---------- clienti ----------
 r.get("/customers", requirePerm("clienti"), h(async (req, res) => {

@@ -3,6 +3,7 @@ import { db } from "../db";
 import { settings } from "../../shared/schema";
 import { sql } from "drizzle-orm";
 import { BUSINESS } from "../../shared/constants";
+import { LEGAL_DEFAULTS } from "../../shared/legal";
 
 export const DEFAULT_SETTINGS = {
   booking: {
@@ -45,6 +46,7 @@ export const DEFAULT_SETTINGS = {
     mascotWelcome: "", mascotGrooming: "", mascotSelfService: "", mascotBoarding: "", mascotShop: "", mascotFidelity: "",
     bannerText: "", bannerUrl: "", bannerImageUrl: "", bannerActive: false,
   },
+  legal: { ...LEGAL_DEFAULTS },
   business: {
     ...BUSINESS,
     groomingHours: "Lunedì–Sabato 08:45–19:00 (su appuntamento)",
@@ -119,6 +121,11 @@ export async function publicSettings() {
     loyalty: { enabled: s.loyalty.enabled, pointsPerEuro: s.loyalty.pointsPerEuro },
     shop: s.shop,
     brand: s.brand,
+    legal: {
+      companyName:s.legal.companyName,legalForm:s.legal.legalForm,owner:s.legal.owner,
+      registeredOffice:s.legal.registeredOffice,pec:s.legal.pec,rea:s.legal.rea,taxCode:s.legal.taxCode,
+      vatNumber:s.legal.vatNumber,trackingReviewed:s.legal.trackingReviewed,
+    },
     cancellation: { cancelHours: s.cancellation.cancelHours, rescheduleHours: s.cancellation.rescheduleHours, depositPolicy: s.cancellation.depositPolicy },
     loyaltyRules: { pointValueCents: s.loyalty.pointValueCents, minRedeemPoints: s.loyalty.minRedeemPoints, expiryMode: s.loyalty.expiryMode },
     boarding: s.boarding,

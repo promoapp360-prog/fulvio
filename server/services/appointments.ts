@@ -1,7 +1,7 @@
 import { and, eq, sql } from "drizzle-orm";
 import { db } from "../db";
-import { appointments, appointmentEvents, dogs, operators, services, users, payments, type Appointment, type AppointmentStatus } from "../../shared/schema";
-import { assertSlotFree, operatorCanDo, quote, compatibleOperators, SlotError } from "./availability";
+import { appointments, appointmentEvents, appointmentPhotos, dogPhotos, dogs, operators, services, users, payments, type Appointment, type AppointmentStatus, type Dog } from "../../shared/schema";
+import { assertSlotFree, operatorCanDo, quote, compatibleOperators, compatibleOperatorsForServices, SlotError } from "./availability";
 import { getSettings } from "./settings";
 import { notifyUser, notifyStaff } from "./notify";
 import { awardForAmount } from "./loyalty";
@@ -10,27 +10,49 @@ import { withinDeadline } from "../logic";
 import { euro } from "../../shared/constants";
 import { STATUS_LABELS } from "../../shared/constants";
 import { HttpError } from "../util";
+import { recordConsent } from "./consents";
+import type { Request } from "express";
 
 export async function logEvent(tx: any, appointmentId: number, actorId: number | null, action: string, from: string | null, to: string | null, data: Record<string, unknown> = {}) {
   await tx.insert(appointmentEvents).values({ appointmentId, actorId, action, fromStatus: from, toStatus: to, data });
 }
 
 /** Richiesta di prenotazione del cliente: NON è mai una prenotazione definitiva. */
-export async function createRequest(customerId: number, input: { dogId: number; serviceId: number; operatorId: number | null; start: Date; notes?: string | null }) {
+export async function quoteServices(serviceIds: number[], dog?: Pick<Dog, "size" | "coatKnots" | "coatShedding" | "aggressive"> | null, tx: any = db) {
+  const ids = [...new Set(serviceIds)];
+  if (!ids.length || ids.length > 10 || ids.length !== serviceIds.length) throw new HttpError(400, "Seleziona da uno a dieci servizi diversi");
+  const quotes = await Promise.all(ids.map((serviceId) => quote(serviceId, dog, tx)));
+  if (quotes.some((q) => !q.service.bookable || !q.service.visible)) throw new HttpError(400, "Uno dei servizi selezionati non è prenotabile online");
+  const operators = await compatibleOperatorsForServices(ids, true, tx);
+  if (!operators.length) throw new HttpError(409, "Nessun operatore è abilitato a tutti i servizi selezionati");
+  return {
+    serviceIds: ids,
+    services: quotes.map((q) => q.service),
+    durationMin: quotes.reduce((n, q) => n + q.durationMin, 0),
+    estimatedPriceCents: quotes.some((q) => q.estimatedPriceCents == null) ? null : quotes.reduce((n, q) => n + (q.estimatedPriceCents || 0), 0),
+    supplements: quotes.flatMap((q) => q.supplements),
+    operators,
+  };
+}
+
+export async function createRequest(customerId: number, input: {
+  dogId: number; serviceIds: number[]; operatorId: number | null; start: Date; notes?: string | null;
+  alternativeAvailability?: string | null; privacyVersion: string; privacyIp: string | null; privacyUserAgent: string | null;
+  marketing: boolean; marketingPolicyVersion?:string|null; requestKey:string; request?:Request; photoKey?: string | null;
+}) {
   const [dog] = await db.select().from(dogs).where(and(eq(dogs.id, input.dogId), eq(dogs.ownerId, customerId), eq(dogs.archived, false)));
   if (!dog) throw new HttpError(404, "Cane non trovato");
-  const qt = await quote(input.serviceId, dog);
-  if (!qt.service.bookable || !qt.service.visible) throw new HttpError(400, "Servizio non prenotabile online");
+  const qt = await quoteServices(input.serviceIds, dog);
   const s = await getSettings();
   if (input.start.getTime() < Date.now() + s.booking.minNoticeHours * 3600_000) throw new HttpError(400, `Serve un preavviso di almeno ${s.booking.minNoticeHours} ore`);
 
   let candidates: number[];
   if (input.operatorId) {
-    if (!(await operatorCanDo(input.operatorId, input.serviceId))) throw new HttpError(400, "L'operatore scelto non esegue questo servizio");
+    if (!qt.operators.some((o: any) => o.id === input.operatorId)) throw new HttpError(400, "L'operatore scelto non è abilitato a tutti i servizi");
     candidates = [input.operatorId];
   } else {
     if (!s.booking.allowAnyOperator) throw new HttpError(400, "Seleziona un operatore");
-    candidates = (await compatibleOperators(input.serviceId, true)).map((o: any) => o.id);
+    candidates = qt.operators.map((o: any) => o.id);
   }
 
   let lastErr: Error | null = null;
@@ -39,23 +61,36 @@ export async function createRequest(customerId: number, input: { dogId: number; 
       const app = await db.transaction(async (tx) => {
         await assertSlotFree(tx, opId, input.start, qt.durationMin);
         const [a] = await tx.insert(appointments).values({
-          customerId, dogId: dog.id, serviceId: input.serviceId, operatorId: opId,
+          customerId, dogId: dog.id, serviceId: qt.serviceIds[0], requestedServiceIds: qt.serviceIds, operatorId: opId,
           startAt: input.start, endAt: new Date(input.start.getTime() + qt.durationMin * 60_000), durationMin: qt.durationMin,
-          status: "richiesta", customerNotes: input.notes || null, estimatedPriceCents: qt.estimatedPriceCents,
+          status: "richiesta", customerNotes: input.notes || null, alternativeAvailability: input.alternativeAvailability || null,
+          estimatedPriceCents: qt.estimatedPriceCents, privacyAcknowledgedAt: new Date(), privacyVersion: input.privacyVersion,
+          privacyAcknowledgementProof: "presa_visione_informativa_privacy", privacyRequestIp: input.privacyIp, privacyUserAgent: input.privacyUserAgent,
+          marketingConsent:input.marketing,marketingConsentAt:input.marketing?new Date():null,
+          marketingConsentProof:input.marketing?"consenso_marketing_esplicito":null,requestKey:input.requestKey,
           paymentMode: s.payments.defaultMode, source: "online",
         }).returning();
-        await logEvent(tx, a.id, customerId, "richiesta_creata", null, "richiesta", { operatorId: opId, supplements: qt.supplements });
+        await logEvent(tx, a.id, customerId, "richiesta_creata", null, "richiesta", { operatorId: opId, serviceIds: qt.serviceIds, supplements: qt.supplements, privacyVersion: input.privacyVersion, privacyProof: "presa_visione_informativa_privacy" });
+        if (input.photoKey) {
+          await tx.insert(dogPhotos).values({ dogId: dog.id, storageKey: input.photoKey })
+            .onConflictDoUpdate({ target: dogPhotos.dogId, set: { storageKey: input.photoKey, createdAt: new Date() } });
+          await tx.insert(appointmentPhotos).values({ appointmentId: a.id, storageKey: input.photoKey });
+        }
+        if(input.marketing){
+          await tx.update(users).set({consentMarketing:true,consentDate:new Date()}).where(eq(users.id,customerId));
+          await recordConsent(tx,{userId:customerId,kind:"marketing",granted:true,source:"richiesta_prenotazione",proof:"consenso_marketing_esplicito",policyVersion:input.marketingPolicyVersion,req:input.request||null});
+        }
         return a;
       });
       const [op] = await db.select().from(operators).where(eq(operators.id, opId));
       const [cust] = await db.select().from(users).where(eq(users.id, customerId));
       if (cust) await notifyUser(cust, {
-        title: "Richiesta inviata", body: `${qt.service.name} per ${dog.name} il ${fmtRome(app.startAt)}: attendi la conferma di Dog's Planet.`,
-        url: "/account/appuntamenti", template: "richiesta_ricevuta", vars: { cane: dog.name, servizio: qt.service.name, data: fmtRome(app.startAt) },
+        title: "Richiesta inviata", body: `${qt.services.map((x) => x.name).join(", ")} per ${dog.name} il ${fmtRome(app.startAt)}: attendi la conferma di Dog's Planet.`,
+        url: "/account/appuntamenti", template: "richiesta_ricevuta", vars: { cane: dog.name, servizio: qt.services.map((x) => x.name).join(", "), data: fmtRome(app.startAt) },
       });
       await notifyStaff("richieste", {
         title: "Nuova richiesta di prenotazione",
-        body: `${dog.name} – ${qt.service.name} con ${op?.name ?? "operatore"} il ${fmtRome(app.startAt)}`,
+        body: `${dog.name} – ${qt.services.map((x) => x.name).join(", ")} con ${op?.name ?? "operatore"} il ${fmtRome(app.startAt)}`,
         url: `/admin/richieste?id=${app.id}`,
       });
       return app;

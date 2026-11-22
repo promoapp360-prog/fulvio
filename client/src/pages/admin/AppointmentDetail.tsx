@@ -65,8 +65,14 @@ export default function AppointmentDetail({ id, onClose }: { id: number | null; 
                 {a.dog.aggressive && <span className="badge bg-red-100 text-red-700"><AlertTriangle size={12} className="mr-1" />Attenzione: {a.dog.aggressiveNotes || "comportamento aggressivo"}</span>}
               </div>
               {[a.dog.jointIssues && `Articolazioni: ${a.dog.jointIssues}`, a.dog.dermatitis && `Dermatiti: ${a.dog.dermatitis}`, a.dog.sensitivities && `Sensibilità: ${a.dog.sensitivities}`, a.dog.coatNotes && `Mantello: ${a.dog.coatNotes}`].filter(Boolean).map((t: any) => <p key={t} className="text-slate-600">{t}</p>)}
+              <img src={`/api/admin/appointments/${id}/photo`} alt={`Foto di ${a.dog.name}`} className="mt-3 max-h-52 rounded-xl object-contain" onError={e=>(e.currentTarget.style.display="none")}/>
             </div>
           )}
+          {(a.requestedServices?.length>1||a.privacyAcknowledgedAt)&&<div className="rounded-xl border border-slate-200 p-3 text-sm">
+            {a.requestedServices?.length>1&&<p><b>Servizi richiesti:</b> {a.requestedServices.map((s:any)=>s.name).join(", ")}</p>}
+            {a.privacyAcknowledgedAt&&<p><b>Presa visione privacy:</b> {fmtDateTime(a.privacyAcknowledgedAt)} · versione {a.privacyVersion||"—"} · prova {a.privacyAcknowledgementProof||"—"}</p>}
+            {a.marketingConsent&&<p>Marketing facoltativo: selezionato il {fmtDateTime(a.marketingConsentAt)} · {a.marketingConsentProof}</p>}
+          </div>}
           {a.customerNotes && <p className="rounded-xl bg-brand-sky p-3 text-sm"><b>Note del cliente:</b> {a.customerNotes}</p>}
           {a.changeRequest && (
             <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-amber-50 p-3 text-sm"><span><b>Richiesta del cliente:</b> {a.changeRequest}</span>

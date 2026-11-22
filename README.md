@@ -7,6 +7,7 @@ email e push, promozioni, statistiche, SEO, utenti e permessi, predisposizione a
 
 - Guida all'uso del gestionale: [`docs/GUIDA-GESTIONALE.md`](docs/GUIDA-GESTIONALE.md)
 - Esiti dei test: [`docs/TEST.md`](docs/TEST.md)
+- Dati fiscali, informative in bozza, inventario cookie e checklist pre-pubblicazione: [`docs/legal-readiness.md`](docs/legal-readiness.md).
 
 ---
 

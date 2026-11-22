@@ -3,7 +3,7 @@ import multer from "multer";
 import { z } from "zod";
 import { desc, eq, sql, and, ilike, or, asc } from "drizzle-orm";
 import { db } from "../../db";
-import { auditLog, emailQueue, pushLog, privacyContacts, privacyContactHistory, contactImports, consentPolicies, customerConsents, users } from "../../../shared/schema";
+import { auditLog, emailQueue, pushLog, privacyContacts, privacyContactHistory, contactImports, consentPolicies, customerConsents, users, cookieChoices } from "../../../shared/schema";
 import { requirePerm, requireAdmin } from "../../auth";
 import { audit } from "../../services/audit";
 import { retryEmail } from "../../services/email";
@@ -62,6 +62,10 @@ r.get("/consents", requirePerm("privacy"), h(async (req, res) => {
   const rows = await db.select({ c: customerConsents, name: sql<string>`${users.firstName} || ' ' || ${users.lastName}`, email: users.email }).from(customerConsents)
     .leftJoin(users, eq(users.id, customerConsents.userId)).orderBy(desc(customerConsents.id)).limit(pageSize).offset(offset);
   res.json({ rows: rows.map((x) => ({ ...x.c, name: x.name, email: x.email })), page, pageSize });
+}));
+
+r.get("/cookie-choices",requirePerm("privacy","impostazioni"),h(async(_req,res)=>{
+  res.json(await db.select().from(cookieChoices).orderBy(desc(cookieChoices.id)).limit(100));
 }));
 
 // ---------- contatti privacy: predisposizione all'importazione (punto 25) ----------

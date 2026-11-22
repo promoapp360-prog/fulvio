@@ -1,4 +1,5 @@
 import { useState } from "react";
+import ExternalContentGate from "./ExternalContentGate";
 import { Phone, MessageCircle, Mail, MapPin, Navigation } from "lucide-react";
 import { useBusiness } from "@/lib/settings";
 
@@ -28,7 +29,7 @@ export function MapBox({ compact = false }: { compact?: boolean }) {
   return (
     <div className="overflow-hidden rounded-3xl border border-sky-100 bg-brand-sky shadow-soft">
       {show ? (
-        <iframe title="Mappa Dog's Planet" src={B.mapEmbedUrl} className={`${compact ? "h-64" : "h-80"} w-full`} loading="lazy" referrerPolicy="no-referrer-when-downgrade" />
+        <ExternalContentGate><iframe title="Mappa Dog's Planet" src={B.mapEmbedUrl} className={`${compact ? "h-64" : "h-80"} w-full`} loading="lazy" referrerPolicy="no-referrer" /></ExternalContentGate>
       ) : (
         <div className={`flex ${compact ? "min-h-56" : "h-80"} flex-col items-center justify-center gap-3 p-6 text-center`}>
           <MapPin className="text-brand-turquoise" size={40} />

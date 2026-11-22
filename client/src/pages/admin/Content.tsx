@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Upload, Copy, Trash2, Send, Eye, RotateCcw, Users } from "lucide-react";
 import { PageTitle, Spinner, Empty, Field, Check, Tabs, Modal, ErrorBox, Pager, useToast } from "@/components/ui";
 import ResourceManager from "@/components/ResourceManager";
+import LegalChecklist from "@/components/LegalChecklist";
 import { api, get, put, del, post } from "@/lib/api";
 import { fmtDateTime, fmtDay } from "@/lib/format";
 import { SIZES, SIZE_LABELS } from "@shared/constants";
@@ -109,7 +110,22 @@ export function Content() {
   return (
     <div>
       <PageTitle title="Contenuti del sito" subtitle="Testi, pagine, banner, logo, mascotte, immagini, orari e contatti – modificabili senza toccare il codice" />
-      <Tabs value={tab} onChange={setTab} items={[{ value: "pagine", label: "Pagine" }, { value: "home", label: "Home e banner" }, { value: "brand", label: "Logo e mascotte" }, { value: "contatti", label: "Contatti e orari" }, { value: "self", label: "Self-service" }, { value: "faq", label: "FAQ" }, { value: "media", label: "Immagini e file" }]} />
+      <Tabs value={tab} onChange={setTab} items={[{ value: "pagine", label: "Pagine" }, { value:"legale",label:"Dati legali e checklist" }, { value: "home", label: "Home e banner" }, { value: "brand", label: "Logo e mascotte" }, { value: "contatti", label: "Contatti e orari" }, { value: "self", label: "Self-service" }, { value: "faq", label: "FAQ" }, { value: "media", label: "Immagini e file" }]} />
+      {tab==="legale"&&<div className="space-y-4">
+        <SettingsForm key="legal" section="legal" title="Dati legali del titolare — non sono i contatti del negozio" intro={<p className="text-amber-900"><b>Partita IVA mancante:</b> richiederla al titolare prima della pubblicazione finale (DPR 633/1972, art. 35). Non usare il CF come P.IVA. I documenti restano bozze da convalidare.</p>} fields={[
+          {key:"companyName",label:"Denominazione legale"},{key:"legalForm",label:"Forma giuridica"},{key:"owner",label:"Titolare"},
+          {key:"registeredOffice",label:"Sede legale completa"},{key:"pec",label:"Domicilio digitale / PEC"},
+          {key:"rea",label:"REA"},{key:"taxCode",label:"Codice fiscale e n. iscrizione Registro Imprese"},
+          {key:"vatNumber",label:"Partita IVA",hint:"Non fornita. Solo 11 cifre, da confermare con il titolare; vuoto = non mostrata."},
+          {key:"providersConfirmed",label:"Fornitori effettivi, ruoli e contratti verificati",type:"checkbox"},
+          {key:"transfersConfirmed",label:"Regioni e trasferimenti extra-SEE verificati",type:"checkbox"},
+          {key:"retentionConfirmed",label:"Conservazione e procedure di cancellazione definite",type:"checkbox"},
+          {key:"legalReviewed",label:"Testi esaminati con titolare e consulente",type:"checkbox"},
+          {key:"trackingReviewed",label:"Audit tag e relative informative completati — consente i tag solo dopo consenso utente",type:"checkbox"},
+          {key:"reviewNotes",label:"Note sulle verifiche e punti aperti",type:"textarea"},
+        ]}/>
+        <LegalChecklist/>
+      </div>}
       {tab === "pagine" && (
         <ResourceManager title="Pagine" endpoint="/api/admin/pages" searchable canDelete={false} defaults={{ published: true, body: "" }}
           fields={[

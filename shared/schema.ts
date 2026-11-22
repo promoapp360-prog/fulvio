@@ -1,6 +1,6 @@
 // Schema Drizzle – rispecchia esattamente migrations/*.sql (fonte di verità per la struttura).
 import {
-  pgTable, serial, bigserial, integer, smallint, varchar, text, boolean, timestamp, date, jsonb, numeric, primaryKey,
+  pgTable, serial, bigserial, integer, smallint, varchar, text, boolean, timestamp, date, jsonb, numeric, primaryKey, uuid,
 } from "drizzle-orm/pg-core";
 
 const ts = (name: string) => timestamp(name, { withTimezone: true, mode: "date" });
@@ -69,11 +69,15 @@ export const dogs = pgTable("dogs", {
   size: varchar("size", { length: 10 }).notNull().default("media"),
   weightKg: numeric("weight_kg", { precision: 5, scale: 2 }),
   birthDate: date("birth_date"),
+  ageYears: smallint("age_years"),
+  ageMonths: smallint("age_months"),
   notes: text("notes"),
   coatKnots: boolean("coat_knots").notNull().default(false),
   coatShedding: boolean("coat_shedding").notNull().default(false),
   lastBath: date("last_bath"),
   coatType: varchar("coat_type", { length: 80 }),
+  coatLength: varchar("coat_length", { length: 20 }),
+  coatConditions: jsonb("coat_conditions").$type<string[]>().notNull().default([]),
   coatNotes: text("coat_notes"),
   jointIssues: text("joint_issues"),
   dermatitis: text("dermatitis"),
@@ -194,6 +198,17 @@ export const appointments = pgTable("appointments", {
   durationMin: integer("duration_min").notNull(),
   status: varchar("status", { length: 20 }).$type<AppointmentStatus>().notNull().default("richiesta"),
   customerNotes: text("customer_notes"),
+  requestedServiceIds: jsonb("requested_service_ids").$type<number[]>().notNull().default([]),
+  alternativeAvailability: varchar("alternative_availability", {length:500}),
+  privacyAcknowledgedAt: ts("privacy_acknowledged_at"),
+  privacyVersion: varchar("privacy_version",{length:120}),
+  privacyAcknowledgementProof: varchar("privacy_acknowledgement_proof",{length:120}),
+  privacyRequestIp: varchar("privacy_request_ip",{length:64}),
+  privacyUserAgent: varchar("privacy_user_agent",{length:255}),
+  marketingConsent: boolean("marketing_consent").notNull().default(false),
+  marketingConsentAt: ts("marketing_consent_at"),
+  marketingConsentProof: varchar("marketing_consent_proof",{length:120}),
+  requestKey: varchar("request_key",{length:64}).unique(),
   adminNotes: text("admin_notes"),
   estimatedPriceCents: integer("estimated_price_cents"),
   finalPriceCents: integer("final_price_cents"),
@@ -213,6 +228,42 @@ export const appointments = pgTable("appointments", {
   createdAt: ts("created_at").notNull().defaultNow(),
   updatedAt: ts("updated_at").notNull().defaultNow(),
 });
+
+/** Richieste senza account: separate per non creare profili cliente/cane fittizi. */
+export const guestBookings = pgTable("guest_bookings", {
+  id: serial("id").primaryKey(),
+  firstName: varchar("first_name", {length:100}).notNull(), lastName: varchar("last_name", {length:100}).notNull(),
+  email: varchar("email", {length:255}).notNull(), phone: varchar("phone", {length:40}).notNull(),
+  dogName: varchar("dog_name", {length:100}), breed: varchar("breed", {length:120}).notNull(),
+  serviceId: integer("service_id").notNull().references(()=>services.id),
+  operatorId: integer("operator_id").notNull().references(()=>operators.id),
+  startAt: ts("start_at").notNull(), endAt: ts("end_at").notNull(), durationMin: integer("duration_min").notNull(),
+  status: varchar("status",{length:20}).notNull().default("richiesta"),
+  notes: text("notes"), adminMessage: text("admin_message"),
+  proposedStartAt: ts("proposed_start_at"), proposedOperatorId: integer("proposed_operator_id").references(()=>operators.id),
+  privacyAcknowledgedAt: ts("privacy_acknowledged_at").notNull().defaultNow(), privacyVersion: varchar("privacy_version",{length:120}),
+  marketingConsent: boolean("marketing_consent").notNull().default(false),
+  marketingConsentAt: ts("marketing_consent_at"),
+  marketingProof: varchar("marketing_proof",{length:120}),
+  guestCustomerId: integer("guest_customer_id"),
+  guestDogId: integer("guest_dog_id"),
+  requestedServiceIds: jsonb("requested_service_ids").$type<number[]>().notNull().default([]),
+  alternativeAvailability: varchar("alternative_availability",{length:500}),
+  privacyProof: varchar("privacy_proof",{length:120}),
+  privacyIp: varchar("privacy_ip",{length:64}),
+  privacyUserAgent: varchar("privacy_user_agent",{length:255}),
+  tokenSeed: varchar("token_seed",{length:64}).notNull(),
+  requestKey: varchar("request_key",{length:64}).notNull(), payloadHash: varchar("payload_hash",{length:64}).notNull(),
+  dedupeKey: varchar("dedupe_key",{length:64}).notNull(),
+  claimedById: integer("claimed_by_id").references(()=>users.id), claimedAt: ts("claimed_at"),
+  createdAt: ts("created_at").notNull().defaultNow(), updatedAt: ts("updated_at").notNull().defaultNow(),
+});
+export const guestBookingEvents = pgTable("guest_booking_events", {
+  id: serial("id").primaryKey(), bookingId: integer("booking_id").notNull().references(()=>guestBookings.id,{onDelete:"cascade"}),
+  actorId: integer("actor_id").references(()=>users.id), action: varchar("action",{length:50}).notNull(),
+  data: jsonb("data").$type<Record<string,unknown>>().notNull().default({}), createdAt: ts("created_at").notNull().defaultNow(),
+});
+export type GuestBooking = typeof guestBookings.$inferSelect;
 
 export const appointmentEvents = pgTable("appointment_events", {
   id: serial("id").primaryKey(),
@@ -261,6 +312,53 @@ export const products = pgTable("products", {
   active: boolean("active").notNull().default(true),
   createdAt: ts("created_at").notNull().defaultNow(),
   updatedAt: ts("updated_at").notNull().defaultNow(),
+});
+/** Anagrafiche ospiti senza credenziali; non si uniscono automaticamente agli account registrati. */
+export const guestCustomers = pgTable("guest_customers", {
+  id: serial("id").primaryKey(),
+  firstName: varchar("first_name",{length:100}).notNull(), lastName: varchar("last_name",{length:100}).notNull(),
+  email: varchar("email",{length:255}).notNull(), emailNormalized: varchar("email_normalized",{length:255}).notNull(),
+  phone: varchar("phone",{length:40}).notNull(), phoneNormalized: varchar("phone_normalized",{length:24}).notNull(),
+  source: varchar("source",{length:80}).notNull().default("Richiesta prenotazione ospite"),
+  privacyAcknowledgedAt: ts("privacy_acknowledged_at").notNull(),
+  privacyVersion: varchar("privacy_version",{length:120}),
+  privacyProof: varchar("privacy_proof",{length:120}).notNull(),
+  privacyIp: varchar("privacy_ip",{length:64}), privacyUserAgent: varchar("privacy_user_agent",{length:255}),
+  marketingConsent: boolean("marketing_consent").notNull().default(false),
+  marketingConsentAt: ts("marketing_consent_at"),
+  marketingProof: varchar("marketing_proof",{length:120}),
+  emailVerifiedAt: ts("email_verified_at"),
+  linkedUserId: integer("linked_user_id").references(()=>users.id),
+  linkedAt: ts("linked_at"),
+  needsManualReview: boolean("needs_manual_review").notNull().default(false),
+  reviewReason: varchar("review_reason",{length:255}),
+  createdAt: ts("created_at").notNull().defaultNow(), updatedAt: ts("updated_at").notNull().defaultNow(),
+});
+export const guestDogs = pgTable("guest_dogs", {
+  id: serial("id").primaryKey(), guestCustomerId: integer("guest_customer_id").notNull().references(()=>guestCustomers.id),
+  name: varchar("name",{length:80}).notNull(), breed: varchar("breed",{length:120}).notNull(),
+  size: varchar("size",{length:10}).notNull().default("media"),
+  weightKg: numeric("weight_kg",{precision:5,scale:2}),
+  ageYears: smallint("age_years"), ageMonths: smallint("age_months"), birthDate: date("birth_date"),
+  coatType: varchar("coat_type",{length:40}).notNull(), coatLength: varchar("coat_length",{length:20}).notNull(),
+  coatConditions: jsonb("coat_conditions").$type<string[]>().notNull().default([]),
+  coatNotes: text("coat_notes"), photoKey: varchar("photo_key",{length:255}),
+  createdAt: ts("created_at").notNull().defaultNow(), updatedAt: ts("updated_at").notNull().defaultNow(),
+});
+/** Private photo metadata is not included in ordinary customer/dog API responses. */
+export const dogPhotos = pgTable("dog_photos", {
+  id: serial("id").primaryKey(),
+  dogId: integer("dog_id").references(()=>dogs.id,{onDelete:"cascade"}),
+  guestDogId: integer("guest_dog_id").references(()=>guestDogs.id,{onDelete:"cascade"}),
+  storageKey: varchar("storage_key",{length:255}).notNull(),
+  createdAt: ts("created_at").notNull().defaultNow(),
+});
+export const appointmentPhotos = pgTable("appointment_photos", {
+  id: serial("id").primaryKey(),
+  appointmentId: integer("appointment_id").references(()=>appointments.id,{onDelete:"cascade"}),
+  guestBookingId: integer("guest_booking_id").references(()=>guestBookings.id,{onDelete:"cascade"}),
+  storageKey: varchar("storage_key",{length:255}).notNull(),
+  createdAt: ts("created_at").notNull().defaultNow(),
 });
 
 export const stockMovements = pgTable("stock_movements", {
@@ -542,6 +640,17 @@ export const settings = pgTable("settings", {
   key: varchar("key", { length: 80 }).primaryKey(),
   value: jsonb("value").notNull(),
   updatedAt: ts("updated_at").notNull().defaultNow(),
+});
+
+export const cookieChoices = pgTable("cookie_choices",{
+  id:bigserial("id",{mode:"number"}).primaryKey(),
+  receiptId:uuid("receipt_id").notNull(),
+  version:varchar("version",{length:80}).notNull(),
+  analytics:boolean("analytics").notNull().default(false),
+  marketing:boolean("marketing").notNull().default(false),
+  externalContent:boolean("external_content").notNull().default(false),
+  action:varchar("action",{length:20}).notNull(),
+  createdAt:ts("created_at").notNull().defaultNow(),
 });
 
 export const auditLog = pgTable("audit_log", {

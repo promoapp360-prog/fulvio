@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, Search, Download, Pencil, Phone, MessageCircle, Mail } from "lucide-react";
+import { Plus, Search, Download, Pencil, Phone, MessageCircle, Mail, ArrowLeft, Dog, AlertTriangle } from "lucide-react";
 import { PageTitle, Spinner, Empty, Pager, Modal, Field, Check, ErrorBox, Tabs, StatusBadge, MoneyInput, useToast } from "@/components/ui";
 import DogForm, { ageOf } from "@/components/DogForm";
 import ResourceManager from "@/components/ResourceManager";
@@ -63,18 +63,28 @@ export function Customers() {
   const [creating, setCreating] = useState(false);
   const [tab, setTab] = useState("elenco");
   const [flt, setFlt] = useState<Record<string, string>>({});
+  const [guestDetail,setGuestDetail]=useState<number|null>(null);
   const qs = Object.entries(flt).filter(([, v]) => v).map(([k, v]) => `&${k}=${encodeURIComponent(v)}`).join("");
   const { data, isLoading } = useQuery<any>({ queryKey: ["customers", page, q, qs], queryFn: () => get(`/api/admin/customers?page=${page}&q=${encodeURIComponent(q)}${qs}`) });
   const { data: dups } = useQuery<any[]>({ queryKey: ["dups"], queryFn: () => get("/api/admin/customers/duplicates"), enabled: tab === "duplicati" });
   const { data: svc } = useQuery<any[]>({ queryKey: ["admin-services"], queryFn: () => get("/api/admin/services").catch(() => []) });
+  const {data:guestData,isLoading:guestLoading}=useQuery<any>({queryKey:["guest-customers",q],queryFn:()=>get(`/api/admin/guest-customers?q=${encodeURIComponent(q)}`),enabled:tab==="ospiti"});
+  if(guestDetail)return <GuestCustomerDetail id={guestDetail} onBack={()=>setGuestDetail(null)}/>;
   return (
     <div>
       <PageTitle title="Clienti e cani" subtitle={data ? `${data.total} clienti` : undefined}>
         <a href="/api/admin/customers/export.csv" className="btn-outline btn-sm"><Download size={14} /> Esporta CSV</a>
         <button className="btn-primary btn-sm" onClick={() => setCreating(true)}><Plus size={14} /> Nuovo cliente</button>
       </PageTitle>
-      <Tabs value={tab} onChange={setTab} items={[{ value: "elenco", label: "Elenco e ricerca" }, { value: "duplicati", label: "Possibili duplicati" }]} />
-      {tab === "duplicati" ? (!dups ? <Spinner /> : !dups.length ? <Empty>Nessun possibile duplicato trovato.</Empty> : (
+      <Tabs value={tab} onChange={setTab} items={[{ value: "elenco", label: "Clienti registrati" }, { value:"ospiti",label:"Clienti ospiti" }, { value: "duplicati", label: "Possibili duplicati" }]} />
+      {tab==="ospiti"?<div>
+        <div className="relative mb-3 w-full max-w-md"><Search size={16} className="absolute left-3 top-2.5 text-slate-400"/><input className="input pl-9" placeholder="Cerca nome, recapito o cane ospite" value={q} onChange={e=>setQ(e.target.value)}/></div>
+        {guestLoading?<Spinner/>:!guestData?.rows?.length?<Empty>Nessuna anagrafica ospite presente.</Empty>:<div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white"><table className="table-dp"><thead><tr><th>Cliente ospite</th><th>Recapiti</th><th>Cani</th><th>Richieste</th><th>Verifica</th><th>Collegamento</th></tr></thead><tbody>{guestData.rows.map((c:any)=><tr key={c.id} data-testid={`crm-guest-${c.id}`} className="cursor-pointer hover:bg-brand-sky" onClick={()=>setGuestDetail(c.id)}>
+          <td className="font-bold">{c.lastName} {c.firstName}<span className="badge ml-1 bg-amber-100 text-amber-800">Ospite</span></td><td>{c.email}<br/>{c.phone}</td><td>{c.dogs||"—"}</td><td>{c.requests} · ultimo {c.lastRequest?fmtDate(c.lastRequest):"—"}</td>
+          <td>{c.needsManualReview?<span title={c.reviewReason} className="badge bg-red-100 text-red-700"><AlertTriangle size={12} className="mr-1 inline"/>Da verificare</span>:<span className="badge bg-green-100 text-green-800">Nessun conflitto noto</span>}</td>
+          <td>{c.linkedUserId?"Account collegato":c.emailVerifiedAt?"Email verificata":"Non verificato"}</td>
+        </tr>)}</tbody></table></div>}
+      </div>:tab === "duplicati" ? (!dups ? <Spinner /> : !dups.length ? <Empty>Nessun possibile duplicato trovato.</Empty> : (
         <div className="space-y-3">{dups.map((g) => (
           <div key={g.key} className="card"><p className="mb-2 text-sm font-bold text-amber-700">{g.reason}</p>
             <ul className="text-sm">{g.customers.map((c: any) => <li key={c.id}><Link href={`/admin/clienti/${c.id}`} className="font-bold text-brand-blue underline">{c.lastName} {c.firstName}</Link> · {c.email} · {c.phone || "—"} · dal {fmtDate(c.createdAt)}</li>)}</ul></div>
@@ -105,6 +115,27 @@ export function Customers() {
       <Modal open={creating} onClose={() => setCreating(false)} title="Nuovo cliente" wide><CustomerForm initial={{}} onDone={() => setCreating(false)} /></Modal>
     </div>
   );
+}
+
+function GuestCustomerDetail({id:guestId,onBack}:{id:number;onBack:()=>void}){
+  const {data,isLoading}=useQuery<any>({queryKey:["guest-customer",guestId],queryFn:()=>get(`/api/admin/guest-customers/${guestId}`)});
+  if(isLoading||!data)return <Spinner/>;
+  const c=data.customer;
+  return <div>
+    <button className="btn-outline btn-sm mb-3" onClick={onBack}><ArrowLeft size={14}/> Torna alle anagrafiche ospiti</button>
+    <PageTitle title={`${c.firstName} ${c.lastName}`} subtitle="Anagrafica cliente ospite · nessun account creato">
+      <a href={`mailto:${c.email}`} className="btn-outline btn-sm"><Mail size={14}/> Email</a>{c.phone&&<a href={`tel:${c.phone}`} className="btn-outline btn-sm"><Phone size={14}/> Chiama</a>}
+    </PageTitle>
+    <div className="mb-4 grid gap-3 text-sm sm:grid-cols-3">
+      <div className="card"><p className="label">Contatti</p>{c.email}<br/>{c.phone}<p className="mt-2 text-xs text-slate-500">Fonte: {c.source}</p></div>
+      <div className="card"><p className="label">Presa visione informativa</p>{fmtDateTime(c.privacyAcknowledgedAt)}<br/>Versione: {c.privacyVersion||"—"}<br/>Prova: {c.privacyProof||"—"}</div>
+      <div className="card"><p className="label">Marketing facoltativo</p>{c.marketingConsent?"Selezionato separatamente":"Non selezionato"}{c.needsManualReview&&<p className="mt-2 rounded-lg bg-red-50 p-2 text-red-800"><b>Verifica manuale:</b> {c.reviewReason}</p>}{c.linkedUserId&&<p className="mt-1">Account associato dopo verifica</p>}</div>
+    </div>
+    <section className="mb-5"><h2 className="mb-2 flex items-center gap-2 text-lg font-bold"><Dog size={18}/>Schede cane ospite</h2>{!data.dogs?.length?<Empty>Nessuna scheda cane.</Empty>:<div className="grid gap-3 md:grid-cols-2">{data.dogs.map((d:any)=><div className="card" key={d.id}>
+      <h3 className="font-bold">{d.name} · {d.breed}</h3><p className="text-sm">Taglia stimata {d.size} · circa {d.weightKg} kg · {d.ageYears??"—"} anni {d.ageMonths||0} mesi</p><p className="text-sm">Pelo {d.coatType}, {d.coatLength.toLowerCase()} · {(d.coatConditions||[]).join(", ")}</p>{d.coatNotes&&<p className="text-sm">Note manto: {d.coatNotes}</p>}<img src={`/api/admin/guest-dogs/${d.id}/photo`} alt={`Foto di ${d.name}`} className="mt-2 max-h-56 rounded-xl object-contain" onError={e=>(e.currentTarget.style.display="none")}/>
+    </div>)}</div>}</section>
+    <section><h2 className="mb-2 text-lg font-bold">Richieste collegate</h2>{!data.requests?.length?<Empty>Nessuna richiesta.</Empty>:<div className="overflow-x-auto rounded-2xl border bg-white"><table className="table-dp"><thead><tr><th>Data</th><th>Cane</th><th>Servizio</th><th>Stato</th><th>Privacy</th></tr></thead><tbody>{data.requests.map((r:any)=><tr key={r.id}><td>{fmtDateTime(r.startAt)}</td><td>{r.dogName}</td><td>{r.serviceName}{(r.requestedServiceIds||[]).length>1&&" + altri servizi"}</td><td><StatusBadge status={r.status}/></td><td className="text-xs">{r.privacyVersion||"—"}<br/>{r.privacyAcknowledgedAt?fmtDateTime(r.privacyAcknowledgedAt):"—"}</td></tr>)}</tbody></table></div>}</section>
+  </div>;
 }
 
 export function CustomerDetail({ id }: { id: number }) {

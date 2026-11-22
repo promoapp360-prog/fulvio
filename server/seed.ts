@@ -5,6 +5,7 @@ import { db, pool } from "./db";
 import { users, services, operators, operatorServices, operatorShifts, pages, faqs } from "../shared/schema";
 import { hashPassword } from "./auth";
 import { slugify } from "./util";
+import { COOKIE_DRAFT, PRIVACY_DRAFT } from "./services/legal-documents";
 
 const SERVICES: { name: string; category: string; durationMin: number; description: string }[] = [
   { name: "Lavaggio professionale", category: "Lavaggio", durationMin: 60, description: "Bagno con prodotti professionali specifici per il tipo di mantello, asciugatura e spazzolatura." },
@@ -96,7 +97,9 @@ export async function seedIfEmpty() {
     console.log("[seed] Servizi e operatori iniziali creati (prezzi da impostare nel gestionale)");
   }
 
-  for (const pg of PAGES) await db.insert(pages).values(pg).onConflictDoNothing({ target: pages.slug });
+  for (const pg of PAGES) await db.insert(pages).values({
+    ...pg,...(pg.slug==="privacy-policy"?{body:PRIVACY_DRAFT,subtitle:"Bozza da convalidare con il titolare"}:pg.slug==="cookie-policy"?{body:COOKIE_DRAFT,subtitle:"Bozza da convalidare con il titolare"}:{}),
+  }).onConflictDoNothing({ target: pages.slug });
 
   const [{ n: faqCount }] = (await pool.query("SELECT count(*)::int AS n FROM faqs")).rows;
   if (faqCount === 0) await db.insert(faqs).values(SELF_FAQ.map((f, i) => ({ ...f, section: "selfservice", sortOrder: i })));

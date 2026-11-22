@@ -2,7 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { and, asc, desc, eq, gte, inArray, lt, sql, isNotNull, or } from "drizzle-orm";
 import { db } from "../../db";
-import { appointments, appointmentEvents, dogs, operators, services, users, payments } from "../../../shared/schema";
+import { appointments, appointmentEvents, appointmentPhotos, dogs, guestBookings, guestBookingEvents, guestCustomers, guestDogs, operators, services, users, payments } from "../../../shared/schema";
 import { requirePerm, hasPerm } from "../../auth";
 import { applyAction, logEvent, paidTotal } from "../../services/appointments";
 import { assertSlotFree, quote, operatorSlots, availability } from "../../services/availability";
@@ -10,6 +10,8 @@ import { notifyUser } from "../../services/notify";
 import { audit } from "../../services/audit";
 import { h, HttpError, id, zDay, zTime, zOptStr } from "../../util";
 import { romeToDate, addDays, fmtRome } from "../../time";
+import { actOnGuestBooking } from "../../services/guest-bookings";
+import { readStored } from "../../services/storage";
 
 const r = Router();
 
@@ -17,6 +19,8 @@ const baseSelect = {
   id: appointments.id, startAt: appointments.startAt, endAt: appointments.endAt, durationMin: appointments.durationMin, status: appointments.status,
   operatorId: appointments.operatorId, serviceId: appointments.serviceId, dogId: appointments.dogId, customerId: appointments.customerId,
   customerNotes: appointments.customerNotes, adminNotes: appointments.adminNotes, changeRequest: appointments.changeRequest,
+  requestedServiceIds:appointments.requestedServiceIds,alternativeAvailability:appointments.alternativeAvailability,
+  privacyAcknowledgedAt:appointments.privacyAcknowledgedAt,privacyVersion:appointments.privacyVersion,
   estimatedPriceCents: appointments.estimatedPriceCents, finalPriceCents: appointments.finalPriceCents, paymentMode: appointments.paymentMode,
   depositCents: appointments.depositCents, proposedStartAt: appointments.proposedStartAt, allowOverlap: appointments.allowOverlap, createdAt: appointments.createdAt,
   serviceName: services.name, dogName: dogs.name, dogSize: dogs.size, dogBreed: dogs.breed, dogAggressive: dogs.aggressive,
@@ -56,6 +60,57 @@ r.get("/requests", requirePerm("richieste"), h(async (req, res) => {
   res.json(await joined().where(cond).orderBy(asc(appointments.startAt)).limit(200));
 }));
 
+/** Ospiti: archivio separato, nessun account o scheda appuntamento fittizia. */
+r.get("/guest-requests",requirePerm("richieste"),h(async(req,res)=>{
+  const status=String(req.query.status||"aperte");
+  const filters:any[]=[status==="aperte"?inArray(guestBookings.status,["richiesta","in_valutazione","proposta"]):eq(guestBookings.status,status as any)];
+  if(req.query.from)filters.push(gte(guestBookings.startAt,romeToDate(zDay.parse(req.query.from),"00:00")));
+  if(req.query.to)filters.push(lt(guestBookings.startAt,romeToDate(addDays(zDay.parse(req.query.to),1),"00:00")));
+  if(req.query.operatorId)filters.push(eq(guestBookings.operatorId,id(req.query.operatorId)));
+  const rows=await db.select({
+    booking:guestBookings,customer:guestCustomers,dog:guestDogs,
+    serviceName:services.name,operatorName:operators.name,operatorColor:operators.color,
+  }).from(guestBookings).leftJoin(guestCustomers,eq(guestCustomers.id,guestBookings.guestCustomerId))
+    .leftJoin(guestDogs,eq(guestDogs.id,guestBookings.guestDogId))
+    .innerJoin(services,eq(services.id,guestBookings.serviceId))
+    .leftJoin(operators,eq(operators.id,guestBookings.operatorId))
+    .where(and(...filters)).orderBy(asc(guestBookings.startAt)).limit(200);
+  const serviceMap=new Map((await db.select({id:services.id,name:services.name}).from(services)).map(s=>[s.id,s.name]));
+  res.json(rows.map(row=>({...row,serviceNames:(row.booking.requestedServiceIds||[]).map((sid:number)=>serviceMap.get(sid)).filter(Boolean)})));
+}));
+
+r.get("/guest-bookings/:id",requirePerm("richieste","clienti"),h(async(req,res)=>{
+  const gid=id(req.params.id);
+  const [row]=await db.select({booking:guestBookings,customer:guestCustomers,dog:guestDogs,serviceName:services.name,operatorName:operators.name})
+    .from(guestBookings).leftJoin(guestCustomers,eq(guestCustomers.id,guestBookings.guestCustomerId))
+    .leftJoin(guestDogs,eq(guestDogs.id,guestBookings.guestDogId))
+    .innerJoin(services,eq(services.id,guestBookings.serviceId))
+    .leftJoin(operators,eq(operators.id,guestBookings.operatorId)).where(eq(guestBookings.id,gid));
+  if(!row) throw new HttpError(404,"Richiesta ospite non trovata.");
+  const serviceNames=row.booking.requestedServiceIds.length?await db.select({id:services.id,name:services.name}).from(services).where(inArray(services.id,row.booking.requestedServiceIds)):[];
+  const events=await db.select().from(guestBookingEvents).where(eq(guestBookingEvents.bookingId,gid)).orderBy(asc(guestBookingEvents.id));
+  res.json({...row,serviceNames:serviceNames.map(s=>s.name),events});
+}));
+
+r.get("/guest-bookings/:id/photo",requirePerm("richieste","clienti"),h(async(req,res)=>{
+  const [photo]=await db.select({storageKey:appointmentPhotos.storageKey}).from(appointmentPhotos).where(eq(appointmentPhotos.guestBookingId,id(req.params.id)));
+  const data=photo?await readStored(photo.storageKey):null;
+  if(!data) throw new HttpError(404,"Foto non disponibile.");
+  res.set({"Content-Type":"image/webp","Cache-Control":"private, no-store","X-Content-Type-Options":"nosniff"}).send(data);
+}));
+
+r.post("/guest-bookings/:id/action",requirePerm("richieste"),h(async(req,res)=>{
+  const d=z.object({action:z.enum(["conferma","rifiuta","proponi"]),date:zDay.optional(),time:zTime.optional(),operatorId:z.number().int().positive().nullable().optional(),reason:zOptStr(1000)}).parse(req.body);
+  res.json(await actOnGuestBooking(req.params.id,req.user!.id,d));
+}));
+
+r.get("/appointments/:id/photo",requirePerm("richieste","clienti"),h(async(req,res)=>{
+  const [photo]=await db.select({storageKey:appointmentPhotos.storageKey}).from(appointmentPhotos).where(eq(appointmentPhotos.appointmentId,id(req.params.id)));
+  const data=photo?await readStored(photo.storageKey):null;
+  if(!data) throw new HttpError(404,"Foto non disponibile.");
+  res.set({"Content-Type":"image/webp","Cache-Control":"private, no-store","X-Content-Type-Options":"nosniff"}).send(data);
+}));
+
 r.get("/appointments/:id", requirePerm("agenda_view"), h(async (req, res) => {
   const aid = id(req.params.id);
   const [a] = await joined().where(eq(appointments.id, aid));
@@ -68,7 +123,9 @@ r.get("/appointments/:id", requirePerm("agenda_view"), h(async (req, res) => {
   ]);
   const [extra] = await db.select({ treatmentNotes: appointments.treatmentNotes, cancelReason: appointments.cancelReason, cancelledAt: appointments.cancelledAt, cancelledBy: appointments.cancelledBy, lateCancel: appointments.lateCancel })
     .from(appointments).where(eq(appointments.id, aid));
-  res.json({ ...a, ...extra, dog, events: events.map((x) => ({ ...x.e, actor: x.actor })), payments: pays, paidCents: await paidTotal(aid) });
+  const requestedIds=a.requestedServiceIds?.length?a.requestedServiceIds:[a.serviceId];
+  const requestedServices=await db.select({id:services.id,name:services.name}).from(services).where(inArray(services.id,requestedIds));
+  res.json({ ...a, ...extra, requestedServices, dog, events: events.map((x) => ({ ...x.e, actor: x.actor })), payments: pays, paidCents: await paidTotal(aid) });
 }));
 
 const actionSchema = z.object({
