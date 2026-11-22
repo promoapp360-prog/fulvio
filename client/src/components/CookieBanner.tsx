@@ -45,18 +45,18 @@ export default function CookieBanner() {
   };
   if (!open) return null;
   return (
-    <div className="fixed inset-x-0 bottom-0 z-[60] p-3 sm:p-4" role="dialog" aria-label="Preferenze cookie">
-      <div className="mx-auto max-w-3xl rounded-2xl border border-sky-100 bg-white p-5 shadow-2xl">
-        <p className="text-sm text-slate-700">Usiamo cookie tecnici necessari al funzionamento del sito. Con il tuo consenso useremo anche cookie di statistica e marketing. <Link href="/cookie-policy" className="font-bold text-brand-blue underline">Cookie Policy</Link></p>
+    <div className="fixed inset-x-0 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-[60] p-3 md:bottom-0 sm:p-4" role="dialog" aria-label="Preferenze cookie">
+      <div className="mx-auto max-w-3xl rounded-2xl border border-sky-100 bg-white p-4 shadow-2xl sm:p-5">
+        <p className="text-xs leading-relaxed text-slate-700 sm:text-sm">Usiamo cookie tecnici necessari al funzionamento del sito. Con il tuo consenso useremo anche cookie di statistica e marketing. <Link href="/cookie-policy" className="font-bold text-brand-blue underline">Cookie Policy</Link></p>
         <div className="mt-3 flex flex-wrap gap-4 text-sm">
           <label className="flex items-center gap-2 text-slate-500"><input type="checkbox" checked disabled /> Necessari</label>
           <label className="flex items-center gap-2"><input type="checkbox" checked={prefs.analytics} onChange={(e) => setPrefs({ ...prefs, analytics: e.target.checked })} /> Statistiche</label>
           <label className="flex items-center gap-2"><input type="checkbox" checked={prefs.marketing} onChange={(e) => setPrefs({ ...prefs, marketing: e.target.checked })} /> Marketing</label>
         </div>
         <div className="mt-4 flex flex-wrap justify-end gap-2">
-          <button className="btn-outline btn-sm" onClick={() => save(false, false)}>Rifiuta</button>
-          <button className="btn-outline btn-sm" onClick={() => save(prefs.analytics, prefs.marketing)}>Salva preferenze</button>
-          <button className="btn-primary btn-sm" onClick={() => save(true, true)}>Accetta tutti</button>
+          <button className="btn-outline btn-sm min-h-11" onClick={() => save(false, false)}>Rifiuta</button>
+          <button className="btn-outline btn-sm min-h-11" onClick={() => save(prefs.analytics, prefs.marketing)}>Salva preferenze</button>
+          <button className="btn-primary btn-sm min-h-11" onClick={() => save(true, true)}>Accetta tutti</button>
         </div>
       </div>
     </div>

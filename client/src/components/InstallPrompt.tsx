@@ -19,7 +19,7 @@ export default function InstallPrompt() {
   if (hidden || (!evt && !ios)) return null;
   const close = () => { setHidden(true); try { localStorage.setItem("dp-install-hide", "1"); } catch {} };
   return (
-    <div className="fixed bottom-16 right-3 z-50 max-w-xs rounded-2xl border border-sky-100 bg-white p-4 shadow-2xl md:bottom-4">
+    <div className="fixed bottom-[calc(5rem+env(safe-area-inset-bottom))] right-3 z-50 max-w-xs rounded-2xl border border-sky-100 bg-white p-4 shadow-2xl md:bottom-4">
       <button className="absolute right-2 top-2 text-slate-400" onClick={close} aria-label="Chiudi"><X size={16} /></button>
       <div className="flex items-center gap-3">
         <img src="/icons/icon-192.png" alt="" className="h-10 w-10 rounded-xl" />

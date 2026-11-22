@@ -22,11 +22,11 @@ const OVERRIDE_KEY: Record<MascotKind, string> = {
 };
 
 /** Poppy, mascotte ufficiale: stesso cane e accessori originali, senza frammenti della brand board. */
-export function Mascot({ kind, className = "h-32", alt }: { kind: MascotKind; className?: string; alt?: string }) {
+export function Mascot({ kind, className = "h-32", alt, detail = false }: { kind: MascotKind; className?: string; alt?: string; detail?: boolean }) {
   const { data: s } = usePublicSettings();
   const custom = s?.brand?.[OVERRIDE_KEY[kind]];
   if (custom) return <img src={custom} alt={alt ?? "Poppy, la mascotte di Dog's Planet"} loading="lazy" className={`${className} max-w-full w-auto object-contain`} />;
-  const asset = kind === "welcome" ? "mascotte-welcome" : `poppy-${kind}`;
+  const asset = kind === "welcome" ? "mascotte-welcome" : `poppy-${kind}${detail ? "-detail" : ""}`;
   return (
     <picture className="contents">
       <source srcSet={`/brand/${asset}.webp`} type="image/webp" />

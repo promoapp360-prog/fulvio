@@ -35,13 +35,13 @@ export function PublicLayout({ children }: { children: React.ReactNode }) {
   const announcement = s?.site?.announcement;
 
   return (
-    <div className="flex min-h-screen flex-col">
+    <div className="flex min-h-screen flex-col pb-[calc(4rem+env(safe-area-inset-bottom))] md:pb-0">
       <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-50 focus:rounded focus:bg-white focus:p-2">Vai al contenuto</a>
       {announcement && <div className="bg-brand-turquoise px-4 py-2 text-center text-sm font-bold text-white">{announcement}</div>}
       <header className="sticky top-0 z-40 border-b border-sky-100 bg-white/95 backdrop-blur">
-        <div className="container-dp flex h-20 items-center justify-between gap-4 md:h-24">
+        <div className="container-dp flex h-[4.5rem] items-center justify-between gap-4 md:h-20">
           <div className="flex shrink-0 items-center gap-6">
-            <Link href="/" aria-label="Dog's Planet – home"><Logo className="h-14 md:h-16" /></Link>
+            <Link href="/" aria-label="Dog's Planet – home"><Logo className="h-12 md:h-14" /></Link>
             <p className="hidden border-l border-sky-100 pl-6 text-sm leading-relaxed text-slate-500 lg:block">Toelettatura e cura del tuo cane<br /><span className="text-xs">Cernusco sul Naviglio</span></p>
           </div>
           <div className="flex shrink-0 items-center gap-1 sm:gap-3">
@@ -62,7 +62,7 @@ export function PublicLayout({ children }: { children: React.ReactNode }) {
           </div>
         </nav>
         {open && (
-          <nav id="mobile-navigation" className="max-h-[calc(100dvh-5rem)] overflow-y-auto border-t border-sky-100 bg-white xl:hidden" aria-label="Menu mobile">
+          <nav id="mobile-navigation" className="max-h-[calc(100dvh-8.5rem-env(safe-area-inset-bottom))] overflow-y-auto border-t border-sky-100 bg-white md:max-h-[calc(100dvh-5rem)] xl:hidden" aria-label="Menu mobile">
             <div className="container-dp grid gap-1 py-3">
               {NAV.map((n) => <Link key={n.href} href={n.href} onClick={() => setOpen(false)} aria-current={loc === n.href ? "page" : undefined} className={`rounded-xl px-3 py-3 font-semibold text-brand-navy hover:bg-brand-sky ${loc === n.href ? "bg-brand-sky" : ""}`}>{n.label}{n.href === "/pet-shop" && !s?.site?.shopEnabled && <span className="mt-0.5 block text-xs font-normal text-slate-500">Coming Soon</span>}</Link>)}
               <BookingButton className="mt-2" />
@@ -75,11 +75,11 @@ export function PublicLayout({ children }: { children: React.ReactNode }) {
 
       <Footer />
       {/* barra azioni rapide su smartphone */}
-      <div className="sticky bottom-0 z-30 grid grid-cols-3 border-t border-sky-100 bg-white text-xs font-bold text-brand-navy md:hidden">
-        <a href={`tel:${B.phoneIntl}`} className="flex flex-col items-center gap-0.5 py-2"><Phone size={18} />Chiama</a>
-        <a href={`https://wa.me/${B.whatsapp}`} target="_blank" rel="noreferrer" className="flex flex-col items-center gap-0.5 py-2"><MessageCircle size={18} />WhatsApp</a>
-        <a href={B.googleMapsUrl} target="_blank" rel="noreferrer" className="flex flex-col items-center gap-0.5 py-2"><Navigation size={18} />Naviga</a>
-      </div>
+      <nav data-mobile-actions className="fixed inset-x-0 bottom-0 z-40 grid h-[calc(4rem+env(safe-area-inset-bottom))] grid-cols-3 border-t border-sky-100 bg-white pb-[env(safe-area-inset-bottom)] text-[11px] font-semibold text-brand-navy shadow-[0_-4px_18px_#0b3d9108] md:hidden" aria-label="Contatti rapidi">
+        <a href={`tel:${B.phoneIntl}`} className="flex h-16 flex-col items-center justify-center gap-1"><Phone size={19} aria-hidden="true" />Chiama</a>
+        <a href={`https://wa.me/${B.whatsapp}`} target="_blank" rel="noreferrer" className="flex h-16 flex-col items-center justify-center gap-1 border-x border-sky-100"><MessageCircle size={19} aria-hidden="true" />WhatsApp</a>
+        <a href={B.googleMapsUrl} target="_blank" rel="noreferrer" className="flex h-16 flex-col items-center justify-center gap-1"><Navigation size={19} aria-hidden="true" />Naviga</a>
+      </nav>
       <CookieBanner />
       <InstallPrompt />
     </div>
@@ -91,12 +91,12 @@ export function Footer() {
   const B = useBusiness();
   return (
     <footer className="bg-brand-navy text-white">
-      <div className="container-dp grid gap-8 py-12 md:grid-cols-4">
-        <div className="md:col-span-1">
-          <Logo white className="h-20" />
-          <p className="mt-4 text-sm text-sky-100">Toelettatura professionale per cani a Cernusco sul Naviglio.</p>
+      <div className="container-dp grid grid-cols-2 gap-x-6 gap-y-8 py-10 lg:grid-cols-4">
+        <div className="col-span-2 flex items-center gap-5 lg:col-span-1 lg:block">
+          <Logo white className="h-14 shrink-0 lg:h-16" />
+          <p className="max-w-xs text-xs leading-relaxed text-sky-100 lg:mt-4">Toelettatura professionale per cani a Cernusco sul Naviglio.</p>
         </div>
-        <div>
+        <div className="col-span-2 sm:col-span-1">
           <h3 className="mb-3 font-display text-sm font-bold uppercase tracking-wider text-[#3fd5e4]">Contatti</h3>
           <ul className="space-y-2 text-sm">
             <li><a className="flex items-center gap-2 hover:underline" href={`tel:${B.phoneIntl}`}><Phone size={16} /> {B.phone}</a></li>

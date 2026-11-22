@@ -22,6 +22,13 @@ for (const kind of ["toelettatura", "self-service", "pensione", "fidelity", "pet
   }
   // Stessa cornice e linea di base; nessuna immagine viene ingrandita.
   const cleaned = await image.png().toBuffer();
+  // Variante ravvicinata per le card della home: si toglie soltanto il margine
+  // bianco esterno. Nessun ingrandimento, ridisegno o ritocco dei pixel di Poppy.
+  const detail = await sharp(cleaned).flatten({ background: "#ffffff" })
+    .trim({ background: "#ffffff", threshold: 14 })
+    .extend({ top: 4, bottom: 4, left: 4, right: 4, background: "#ffffff" }).png().toBuffer();
+  await sharp(detail).png().toFile(path.join(dir, `poppy-${kind}-detail.png`));
+  await sharp(detail).webp({ lossless: true }).toFile(path.join(dir, `poppy-${kind}-detail.webp`));
   const { data, info } = await sharp(cleaned).resize(208, 168, {
     fit: "inside", withoutEnlargement: true,
   }).png().toBuffer({ resolveWithObject: true });
