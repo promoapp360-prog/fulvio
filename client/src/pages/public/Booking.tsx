@@ -141,9 +141,9 @@ export default function BookingPage(){
   if(isLoading)return <Spinner />;
   if(requestId&&requestToken)return <><PageHero title="La tua richiesta" subtitle="Stato della richiesta di prenotazione" mascot="toelettatura"/><div className="container-dp py-8"><div className="card mx-auto max-w-xl">{tracking.isLoading?<Spinner/>:tracking.error?<p role="alert">Link non valido o non più disponibile.</p>:<><CheckCircle2 className="text-green-600" size={42}/><h2 className="mt-3 text-xl font-extrabold">{tracking.data?.status==="richiesta"?"In attesa di approvazione":`Stato: ${tracking.data?.status}`}</h2><p className="mt-2">Data richiesta: {fmtDateTime(tracking.data?.startAt)}</p>{tracking.data?.proposedStartAt&&<p>Orario proposto: {fmtDateTime(tracking.data.proposedStartAt)}</p>}</>}<Link href="/" className="btn-outline mt-5">Torna al sito</Link></div></div></>;
   if(success)return <><PageHero title="Richiesta inviata" subtitle="La richiesta non è ancora una prenotazione confermata." mascot="toelettatura"/><div className="container-dp py-8"><div className="card mx-auto max-w-xl text-center"><CheckCircle2 className="mx-auto text-green-600" size={48}/><h2 className="mt-3 text-2xl font-extrabold">Richiesta ricevuta</h2><p className="mt-2 text-slate-600">{success.message}</p>{success.trackingUrl&&<a href={success.trackingUrl} className="btn-outline mt-4 inline-flex">Segui la richiesta</a>}<p className="mt-4 text-xs text-slate-500">L’appuntamento sarà confermato solo dopo la risposta di Dog’s Planet.</p><Link href="/" className="btn-primary mt-5">Torna al sito</Link></div></div></>;
-  if(me&&me.role!=="customer")return <><PageHero title="Richiedi la prenotazione on Line" subtitle="Sei collegato come personale." mascot="toelettatura"/><div className="container-dp py-8"><p>Per inserire appuntamenti usa il <Link className="font-bold underline" href="/admin/agenda">gestionale</Link>.</p></div></>;
+  if(me&&me.role!=="customer")return <><PageHero title="Richiedi la prenotazione online" subtitle="Sei collegato come personale." mascot="toelettatura"/><div className="container-dp py-8"><p>Per inserire appuntamenti usa il <Link className="font-bold underline" href="/admin/agenda">gestionale</Link>.</p></div></>;
 
-  return <><PageHero title="Richiedi la prenotazione on Line" subtitle="Scegli un giorno e un orario, poi invia la richiesta. L’appuntamento sarà valido solo dopo l’approvazione del salone." mascot="toelettatura"/>
+  return <><PageHero title="Richiedi la prenotazione online" subtitle="Scegli un giorno e un orario, poi invia la richiesta. L’appuntamento sarà valido solo dopo l’approvazione del salone." mascot="toelettatura"/>
     <div className="container-dp py-6 sm:py-9">
       <div className="mx-auto max-w-3xl space-y-5">
         <section className="card min-w-0" aria-labelledby="booking-date-heading">
@@ -268,7 +268,7 @@ export default function BookingPage(){
 function ServiceOptions({services,selected,onToggle}:{services:any[];selected:number[];onToggle:(id:number)=>void}){
   return <fieldset className="mb-4">
     <legend className="mb-2 font-semibold text-slate-700">Servizi richiesti * <span className="font-normal text-slate-500">Seleziona uno o più servizi attivi.</span></legend>
-    {!services.length?<p className="rounded-xl bg-amber-50 p-3 text-sm">Nessun servizio risulta prenotabile on line al momento.</p>:
+    {!services.length?<p className="rounded-xl bg-amber-50 p-3 text-sm">Nessun servizio risulta prenotabile online al momento.</p>:
       <div className="grid gap-2 sm:grid-cols-2">{services.map(s=><CheckLine key={s.id} checked={selected.includes(s.id)} onChange={()=>onToggle(s.id)}><span className="font-semibold">{s.name}</span><span className="block text-xs text-slate-500">{s.category} · circa {s.durationMin} min{s.priceCents!=null?` · ${euro(s.priceCents)}`:""}</span></CheckLine>)}</div>}
   </fieldset>;
 }

@@ -79,7 +79,7 @@ export function PublicLayout({ children }: { children: React.ReactNode }) {
       <nav data-mobile-actions className="fixed inset-x-0 bottom-0 z-40 grid h-[calc(4rem+env(safe-area-inset-bottom))] grid-cols-3 gap-1 border-t border-sky-100 bg-white px-1 pb-[env(safe-area-inset-bottom)] text-[11px] font-semibold shadow-[0_-4px_18px_#0b3d9108] md:hidden" aria-label="Contatti rapidi e prenotazione">
         <a href={`tel:${B.phoneIntl}`} className="flex h-14 flex-col items-center justify-center gap-1 rounded-xl bg-[#e8f1fb] text-brand-navy" aria-label="Chiama Dog's Planet"><Phone size={19} aria-hidden="true" />Chiama</a>
         <a href={`https://wa.me/${B.whatsapp}`} target="_blank" rel="noreferrer" className="flex h-14 flex-col items-center justify-center gap-1 rounded-xl bg-[#168447] text-white" aria-label="Contatta Dog's Planet su WhatsApp"><MessageCircle size={19} aria-hidden="true" />WhatsApp</a>
-        <Link href="/richiedi-prenotazione" className="flex h-14 flex-col items-center justify-center gap-0.5 rounded-xl bg-brand-navy px-1 text-center leading-tight text-white" aria-label="Richiedi la prenotazione on Line"><CalendarDays size={18} className="text-brand-turquoise" aria-hidden="true" /><span>Richiedi la prenotazione</span><span className="text-brand-turquoise">on Line</span></Link>
+        <Link href="/richiedi-prenotazione" className="flex h-14 flex-col items-center justify-center gap-0.5 rounded-xl bg-brand-navy px-1 text-center leading-tight text-white" aria-label="Richiedi la prenotazione online"><CalendarDays size={18} className="text-brand-turquoise" aria-hidden="true" /><span>Richiedi la prenotazione</span><span className="text-brand-turquoise">online</span></Link>
       </nav>
       <CookieBanner />
       <InstallPrompt />

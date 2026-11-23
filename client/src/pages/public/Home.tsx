@@ -172,7 +172,7 @@ export default function Home() {
       <section data-home-section="contacts" className="container-dp home-section" aria-labelledby="salon-title">
         <div className="home-section-heading">
           <div><p className="home-eyebrow">Vieni a conoscerci</p><h2 id="salon-title">Il salone</h2></div>
-          <p>Via Leonardo da Vinci 86, Cernusco sul Naviglio. Per gli appuntamenti usa la richiesta on line; per informazioni chiamaci o scrivici.</p>
+          <p>Via Leonardo da Vinci 86, Cernusco sul Naviglio. Per gli appuntamenti usa la richiesta online; per informazioni chiamaci o scrivici.</p>
         </div>
         <div className="home-contact-grid"><ContactCards stacked /><MapBox compact /></div>
       </section>

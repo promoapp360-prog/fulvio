@@ -173,7 +173,7 @@ function Appointments() {
         <div className="overflow-x-auto"><table className="table-dp"><thead><tr><th>Data</th><th>Cane</th><th>Servizio</th><th>Operatore</th><th>Stato</th></tr></thead>
           <tbody>{past.map((a) => <tr key={a.id}><td>{fmtDateTime(a.startAt)}</td><td>{a.dogName}</td><td>{a.serviceName}</td><td>{a.operatorName || "—"}</td><td><StatusBadge status={a.status} /></td></tr>)}</tbody></table></div>
       </section>}
-      {!allAppointments.length&&!guestRows?.length&&<Empty>Non hai ancora appuntamenti. <Link href="/richiedi-prenotazione" className="font-bold underline">Richiedi la prenotazione on Line</Link></Empty>}
+      {!allAppointments.length&&!guestRows?.length&&<Empty>Non hai ancora appuntamenti. <Link href="/richiedi-prenotazione" className="font-bold underline">Richiedi la prenotazione online</Link></Empty>}
       <Modal open={!!changeFor} onClose={() => setChangeFor(null)} title="Richiesta al salone">
         <div className="space-y-3">
           <Field label="Tipo"><select className="input" value={msg.kind} onChange={(e) => setMsg({ ...msg, kind: e.target.value })}><option value="modifica">Modifica</option><option value="cancellazione">Cancellazione</option></select></Field>
