@@ -62,13 +62,13 @@ export default function AdminArea() {
   const [loc] = useLocation();
   const [open, setOpen] = useState(false);
   const logout = useLogout();
-  const { data: dash } = useQuery<any>({ queryKey: ["dashboard"], queryFn: () => get("/api/admin/dashboard"), enabled: isStaffRole(me ?? null), refetchInterval: 180_000 });
+  const { data: dash } = useQuery<any>({ queryKey: ["dashboard"], queryFn: () => get("/api/admin/dashboard"), enabled: isStaffRole(me ?? null), refetchInterval: 30_000 });
   if (isLoading) return <Spinner />;
   if (!me) return <Redirect to={`/login?next=${encodeURIComponent(loc)}`} />;
   if (!isStaffRole(me)) return <Redirect to="/account" />;
   const allowed = MENU.filter((m) => can(me, ...m.perm));
   const groups = Array.from(new Set(allowed.map((m) => m.group)));
-  const badge = (href: string) => href === "/admin/richieste" ? (dash?.counts?.pending || 0) + (dash?.counts?.changes || 0) : href === "/admin/pensione" ? dash?.counts?.boarding : href === "/admin/ordini" ? dash?.counts?.orders : href === "/admin/magazzino" ? dash?.counts?.low_stock : href === "/admin/comunicazioni" ? dash?.counts?.failed_emails : 0;
+  const badge = (href: string) => href === "/admin/richieste" ? dash?.counts?.actionable_requests || 0 : href === "/admin/pensione" ? dash?.counts?.boarding : href === "/admin/ordini" ? dash?.counts?.orders : href === "/admin/magazzino" ? dash?.counts?.low_stock : href === "/admin/comunicazioni" ? dash?.counts?.failed_emails : 0;
 
   return (
     <div className="flex min-h-screen bg-slate-50">
@@ -82,8 +82,8 @@ export default function AdminArea() {
                 const active = m.href === "/admin" ? loc === "/admin" : loc.startsWith(m.href);
                 const b = badge(m.href);
                 return (
-                  <Link key={m.href} href={m.href} onClick={() => setOpen(false)} className={`flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold ${active ? "bg-brand-navy text-white" : "text-slate-700 hover:bg-brand-sky"}`}>
-                    <m.icon size={16} /> <span className="flex-1">{m.label}</span>{b ? <span className="badge bg-amber-400 text-white">{b}</span> : null}
+                  <Link key={m.href} href={m.href} onClick={() => setOpen(false)} className={`relative flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold ${active ? "bg-brand-navy text-white" : "text-slate-700 hover:bg-brand-sky"}`}>
+                    <m.icon size={16} /> <span className={`flex-1 ${m.href === "/admin/richieste" && b ? "pr-5" : ""}`}>{m.label}</span>{b ? <span className={`badge ${m.href === "/admin/richieste" ? "absolute -right-1 -top-1 min-w-5 rounded-full bg-red-600 px-1.5 text-center text-white shadow-sm motion-safe:animate-pulse" : "bg-amber-400 text-white"}`} aria-label={`${b} ${b === 1 ? "richiesta da lavorare" : "richieste da lavorare"}`}>{b > 99 ? "99+" : b}</span> : null}
                   </Link>
                 );
               })}
