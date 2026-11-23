@@ -8,12 +8,11 @@ import { get } from "@/lib/api";
 import { fmtDay } from "@/lib/format";
 import "./Home.css";
 
-const SERVICES: { kind: MascotKind; title: string; text: string; href: string; soon?: boolean }[] = [
+const SERVICES: { kind: MascotKind; title: string; text: string; href: string }[] = [
   { kind: "toelettatura", title: "Toelettatura", text: "Bagno, taglio e trattamenti su misura, con cura e pazienza.", href: "/toelettatura" },
   { kind: "self-service", title: "Self-Service", text: "Il lavaggio in autonomia, ogni giorno dell’anno.", href: "/self-service" },
   { kind: "pensione", title: "Pensione Casalinga", text: "Un ambiente familiare quando non puoi portarlo con te.", href: "/pensione-casalinga" },
   { kind: "fidelity", title: "Fidelity Card", text: "Punti e vantaggi dedicati a te e al tuo cane.", href: "/fidelity-card" },
-  { kind: "pet-shop", title: "LaPappadiPoppy", text: "Una selezione di prodotti per il suo benessere.", href: "/pet-shop", soon: true },
 ];
 const STEPS = [
   { title: "Raccontaci del tuo cane", text: "Registrati e crea la sua scheda." },
@@ -92,7 +91,6 @@ export default function Home() {
               <div className="home-service-visual"><Mascot kind={x.kind} detail className="home-poppy-art" alt={`Poppy — ${x.title}`} /></div>
               <div className="home-service-copy">
                 <h3>{x.title}</h3>
-                {x.soon && !shopOn && <span className="home-coming-soon">Coming Soon</span>}
                 <p>{x.text}</p>
                 <span className="home-card-link" aria-hidden="true">Scopri di più <ArrowUpRight size={15} /></span>
               </div>

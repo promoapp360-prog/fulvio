@@ -14,7 +14,7 @@ const NAV = [
   { href: "/self-service", label: "Self-Service" },
   { href: "/pensione-casalinga", label: "Pensione Casalinga" },
   { href: "/fidelity-card", label: "Fidelity Card" },
-  { href: "/pet-shop", label: "LaPappadiPoppy" },
+  { href: "/pet-shop", label: "Shop" },
   { href: "/chi-siamo", label: "Chi siamo" },
   { href: "/contatti", label: "Contatti" },
 ];
@@ -57,7 +57,7 @@ export function PublicLayout({ children }: { children: React.ReactNode }) {
           <div className="container-dp flex items-center justify-between gap-1 py-1">
             {NAV.map((n) => (
               <Link key={n.href} href={n.href} aria-current={loc === n.href ? "page" : undefined} className={`flex min-h-12 flex-col justify-center whitespace-nowrap rounded-xl px-3 py-2 text-[13px] font-semibold leading-snug transition hover:bg-brand-sky ${loc === n.href ? "bg-brand-sky text-brand-navy" : "text-brand-navy"}`}>
-                {n.label}{n.href === "/pet-shop" && !s?.site?.shopEnabled && <span className="mt-0.5 text-[10px] font-medium tracking-wide text-slate-500">Coming Soon</span>}
+                {n.label}
               </Link>
             ))}
           </div>
@@ -65,7 +65,7 @@ export function PublicLayout({ children }: { children: React.ReactNode }) {
         {open && (
           <nav id="mobile-navigation" className="max-h-[calc(100dvh-8.5rem-env(safe-area-inset-bottom))] overflow-y-auto border-t border-sky-100 bg-white md:max-h-[calc(100dvh-5rem)] xl:hidden" aria-label="Menu mobile">
             <div className="container-dp grid gap-1 py-3">
-              {NAV.map((n) => <Link key={n.href} href={n.href} onClick={() => setOpen(false)} aria-current={loc === n.href ? "page" : undefined} className={`rounded-xl px-3 py-3 font-semibold text-brand-navy hover:bg-brand-sky ${loc === n.href ? "bg-brand-sky" : ""}`}>{n.label}{n.href === "/pet-shop" && !s?.site?.shopEnabled && <span className="mt-0.5 block text-xs font-normal text-slate-500">Coming Soon</span>}</Link>)}
+              {NAV.map((n) => <Link key={n.href} href={n.href} onClick={() => setOpen(false)} aria-current={loc === n.href ? "page" : undefined} className={`rounded-xl px-3 py-3 font-semibold text-brand-navy hover:bg-brand-sky ${loc === n.href ? "bg-brand-sky" : ""}`}>{n.label}</Link>)}
               <BookingButton className="mt-2" />
             </div>
           </nav>
