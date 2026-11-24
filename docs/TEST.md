@@ -1,5 +1,26 @@
 # Esiti dei test – Dog's Planet
 
+## Ripristino schema di sviluppo — 24/11/2026
+
+- Confrontate 57 tabelle e 685 colonne richieste dallo schema ORM: mancavano
+  `dogs.species`, `guest_dogs.species` e `guest_bookings.estimated_price_cents`,
+  pur risultando già registrata la migrazione che le introduceva.
+- Applicata solo in sviluppo la migrazione additiva
+  `0009_restore_missing_booking_columns.sql`. Nessuna riesecuzione delle
+  migrazioni precedenti e nessuna modifica ai prezzi del catalogo.
+- Confronto prima/dopo di conteggi e impronte dei dati preesistenti nelle tabelle
+  utenti, animali, clienti ospiti, animali ospiti, richieste ospiti e appuntamenti:
+  invariati, escludendo dal confronto i nuovi campi.
+- `pnpm --filter @workspace/dogs-planet run db:check`: tutte le colonne presenti.
+  Il comando controlla lo schema effettivo in sola lettura, non solo il registro.
+- Query ORM sulle 57 tabelle e join di richieste ospiti/schede animali eseguiti
+  senza errori. Le tre query mirate sono state provate con risultati vuoti:
+  il controllo verifica compatibilità SQL, non prestazioni con dati reali.
+- Controllo TypeScript, build e suite di 45 test superati.
+- Nessun test browser autenticato eseguito; nessuna pubblicazione o modifica
+  al database di produzione. La correzione live richiede il successivo passaggio
+  di pubblicazione autorizzato, con revisione del diff dello schema.
+
 ## Restyling mirato homepage — 22/11/2026
 
 - TypeScript e compilazione: superati. Suite di logica originale: 14/14 superati.

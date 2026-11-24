@@ -12,6 +12,7 @@
     "build": "vite build",
     "start": "NODE_ENV=production tsx server/index.ts",
     "db:migrate": "tsx server/migrate.ts",
+    "db:check": "tsx server/check-schema.ts",
     "db:seed": "tsx server/seed.ts",
     "db:backup": "tsx server/backup.ts",
     "check": "tsc --noEmit",
