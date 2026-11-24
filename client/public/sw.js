@@ -1,5 +1,5 @@
 // Service worker Dog's Planet: cache dell'app shell e degli asset statici, rete per le API, notifiche push.
-const VERSION = "dp-v5-install";
+const VERSION = "dp-v6-updates";
 const SHELL = ["/", "/manifest.webmanifest", "/brand/logo.webp", "/brand/logo.png", "/icons/icon-192.png", "/icons/icon-512.png", "/offline.html"];
 
 self.addEventListener("install", (e) => {

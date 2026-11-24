@@ -1,5 +1,23 @@
 # Esiti dei test – Dog's Planet
 
+## Aggiornamento delle PWA aperte e installate — 24/11/2026
+
+- Ogni build genera una versione distinta del service worker, anche se cambia
+  soltanto il codice dell'interfaccia.
+- Il client verifica aggiornamenti all'avvio, quando torna visibile, al ritorno
+  della connessione e ogni cinque minuti mentre è visibile e online.
+- Quando cambia il worker di controllo, un avviso propone di ricaricare oppure
+  rimandare. Nessun ricaricamento automatico dei moduli compilati.
+- Cinque nuovi test verificano rilevamento, prima installazione senza falso
+  avviso, controlli periodici, gestione offline e rimozione dei listener.
+  Suite complessiva: 50 test superati; TypeScript e build superati.
+- Verificata la versione generata nel worker di produzione compilato.
+- Nessuna installazione fisica o passaggio fra due release su dispositivo reale
+  eseguito. Le vecchie finestre prive del nuovo codice di rilevamento possono
+  richiedere una prima riapertura/ricarica dopo la pubblicazione.
+- Nessuna pubblicazione eseguita: le installazioni esistenti ricevono la release
+  solo dopo il passaggio in produzione autorizzato.
+
 ## Ripristino schema di sviluppo — 24/11/2026
 
 - Confrontate 57 tabelle e 685 colonne richieste dallo schema ORM: mancavano

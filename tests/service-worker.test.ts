@@ -19,7 +19,7 @@ function setup(online = true) {
       clients: { claim: async () => {}, matchAll: async () => [], openWindow: async (url: string) => { opened.push(url); } },
     },
     caches: {
-      keys: async () => ["dp-v3", "dp-v4-homepage", "dp-v5-install", "unrelated-cache"],
+      keys: async () => ["dp-v3", "dp-v4-homepage", "dp-v5-install", "dp-v6-updates", "unrelated-cache"],
       delete: async (key: string) => { deleted.push(key); return true; },
       match: async () => cached(),
       open: async () => ({
@@ -72,7 +72,7 @@ test("PWA: l'aggiornamento elimina solo le vecchie cache Dog's Planet", async ()
   let task: Promise<any> | undefined;
   worker.handlers.activate({ waitUntil: (p: Promise<any>) => { task = p; } });
   await task;
-  assert.deepEqual(worker.deleted, ["dp-v3", "dp-v4-homepage"]);
+  assert.deepEqual(worker.deleted, ["dp-v3", "dp-v4-homepage", "dp-v5-install"]);
 });
 test("PWA: l'installazione precarica i bundle iniziali di produzione", async () => {
   const worker = setup();
