@@ -98,7 +98,7 @@ export function Services() {
                   <td className="text-xs">{s.active ? "Attivo" : "Archiviato"} · {s.visible ? "visibile" : "nascosto"} · {s.bookable ? "prenotabile" : "non prenotabile"} · {s.species}</td>
                   <td className="whitespace-nowrap"><button className="btn-ghost btn-sm" aria-label={`Modifica ${s.name}`} onClick={() => open(s)}><Pencil size={14} /></button>
                     <button className="btn-ghost btn-sm" aria-label={`Duplica ${s.name}`} onClick={() => open({ ...s, id: undefined, slug: undefined, name: `${s.name} (copia)`, active: false, visible: false, bookable: false })}><Copy size={14} /></button>
-                    {s.active&&<button className="btn-ghost btn-sm text-red-600" aria-label={`Archivia ${s.name}`} onClick={async () => { if (confirm("Archiviare il servizio? I dati delle richieste già ricevute resteranno consultabili.")) { await del(`/api/admin/services/${s.id}`); qc.invalidateQueries({ queryKey: ["admin-services"] }); } }}><Trash2 size={14} /></button>}</td>
+                    {s.active&&<button className="btn-ghost btn-sm text-red-600" aria-label={`Archivia ${s.name}`} onClick={async () => { if (confirm("Archiviare il servizio? I dati delle richieste già ricevute resteranno consultabili.")) { await del(`/api/admin/services/${s.id}`); qc.invalidateQueries({ queryKey: ["admin-services"] }); qc.invalidateQueries({ queryKey: ["public-services"] }); } }}><Trash2 size={14} /></button>}</td>
                 </tr>
               ))}</tbody></table>
           </div>
@@ -332,7 +332,7 @@ export function PriceList() {
   const save = async (s: any) => {
     const r = row(s);
     try { await patch(`/api/admin/services/${s.id}`, { priceCents: r.priceCents, durationMin: Number(r.durationMin), variants: r.variants.map((v: any) => ({ ...v, durationMin: v.durationMin ? Number(v.durationMin) : null })) });
-      const n = { ...rows }; delete n[s.id]; setRows(n); toast(`${s.name}: listino aggiornato`); qc.invalidateQueries({ queryKey: ["admin-services"] }); }
+      const n = { ...rows }; delete n[s.id]; setRows(n); toast(`${s.name}: listino aggiornato`); qc.invalidateQueries({ queryKey: ["admin-services"] }); qc.invalidateQueries({ queryKey: ["public-services"] }); }
     catch (e: any) { toast(e.message, "err"); }
   };
   return (

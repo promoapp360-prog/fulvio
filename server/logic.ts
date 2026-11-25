@@ -70,10 +70,19 @@ export function settlementWeek(day: string, payWeekday = 6) {
 // ---------- fidelity (punto 16) ----------
 export type ExpiryRule = { mode: "nessuna" | "annuale" | "fissa" | "periodo"; fixedDate?: string; days?: number };
 
+/** Calendar months, clamping month-end (including leap years). */
+export function addCalendarMonths(date: Date, months: number): Date {
+  const d = new Date(date), day = d.getUTCDate();
+  d.setUTCDate(1);
+  d.setUTCMonth(d.getUTCMonth() + months);
+  d.setUTCDate(Math.min(day, new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate()));
+  return d;
+}
+
 /** Scadenza dei punti accumulati in una certa data. fixedDate = "MM-DD" (es. "12-31"). */
 export function pointsExpiry(accruedAt: Date, rule: ExpiryRule): Date | null {
   switch (rule.mode) {
-    case "annuale": { const d = new Date(accruedAt); d.setUTCFullYear(d.getUTCFullYear() + 1); return d; }
+    case "annuale": return addCalendarMonths(accruedAt, 12);
     case "periodo": return new Date(accruedAt.getTime() + Math.max(1, rule.days || 365) * 86400_000);
     case "fissa": {
       const [mm, dd] = (rule.fixedDate || "12-31").split("-").map(Number);

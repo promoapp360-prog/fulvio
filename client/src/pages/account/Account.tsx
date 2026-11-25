@@ -10,6 +10,7 @@ import { useMe, useLogout } from "@/lib/auth";
 import { usePublicSettings } from "@/lib/settings";
 import { fmtLong, fmtDate, fmtDay, fmtDateTime, todayISO } from "@/lib/format";
 import PushPreferences from "@/components/PushPreferences";
+import LoyaltyClaim from "@/components/LoyaltyClaim";
 import { api } from "@/lib/api";
 import { euro, SIZE_LABELS, PAYMENT_METHODS, PAYMENT_KINDS, ORDER_STATUS, BOARDING_STATUS, STATUS_COLORS, LOYALTY_KINDS } from "@shared/constants";
 
@@ -242,8 +243,9 @@ function Dogs() {
 }
 
 function Loyalty() {
-  const { data, isLoading } = useQuery<any>({ queryKey: ["acc-loyalty"], queryFn: () => get("/api/account/loyalty") });
+  const { data, isLoading } = useQuery<any>({ queryKey: ["acc-loyalty"], queryFn: () => get("/api/account/loyalty"), refetchInterval: 30_000 });
   if (isLoading) return <Spinner />;
+  if (!data) return <ErrorBox error={new Error("Impossibile caricare la Fidelity Card. Riprova.")} />;
   return (
     <div className="space-y-6">
       <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-brand-navy via-brand-blue to-brand-turquoise p-6 text-white shadow-soft">
@@ -254,6 +256,8 @@ function Loyalty() {
         <Mascot kind="fidelity" className="absolute -bottom-2 right-2 h-32 opacity-95" />
       </div>
       <p className="text-sm text-slate-600">Mostra il codice in negozio per accumulare o usare i punti. Ogni euro speso vale {data.rules.pointsPerEuro} punt{data.rules.pointsPerEuro === 1 ? "o" : "i"}{data.rules.pointValueCents > 0 && <> · 1 punto = {euro(data.rules.pointValueCents)} di sconto (nello shop o sui servizi)</>}.</p>
+      <LoyaltyClaim pending={data.pendingClaims} />
+      <p className="text-sm text-slate-600">{data.card.expiryMonths == null ? (data.rules.expiryMode === "annuale" ? "I nuovi punti scadono dopo 12 mesi dall'accumulo." : "La scadenza segue la regola Fidelity del salone.") : data.card.expiryMonths === 0 ? "La tua tessera non prevede scadenza per i nuovi punti." : `I tuoi nuovi punti scadono dopo ${data.card.expiryMonths} mesi dall'accumulo.`} Le scadenze dei punti già accumulati sono riportate qui sotto.</p>
       {data.expiries.length > 0 && (
         <div className="card"><h2 className="mb-2 font-bold">Prossime scadenze</h2>
           <ul className="text-sm">{data.expiries.map((e: any) => <li key={e.expiresAt}><b>{e.points} punti</b> scadono il {fmtDate(e.expiresAt)}</li>)}</ul></div>

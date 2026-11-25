@@ -62,7 +62,7 @@ r.post("/register", limiter, registrationUpload.single("photo"), h(async (req, r
     await recordConsent(tx, { userId: u.id, kind: "privacy", granted: true, proof: "presa_visione_informativa_alla_registrazione", source: "registrazione", req, policyVersion: privacyVersion });
     await recordConsent(tx, { userId: u.id, kind: "condizioni", granted: true, proof: "accettazione_condizioni_servizio", source: "registrazione", req, policyVersion: termsVersion });
     await recordConsent(tx, { userId: u.id, kind: "marketing", granted: d.consentMarketing, source: "registrazione", req, policyVersion: await currentPolicyVersion("marketing") });
-    await ensureCard(u.id, tx);
+    await ensureCard(u.id, tx, true);
     return u;
   }); } catch (error) { await deleteStored(stored.key); throw error; }
   await new Promise<void>((resolve, reject) => req.session.regenerate(error => error ? reject(error) : resolve()));

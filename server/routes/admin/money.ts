@@ -2,7 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { and, asc, desc, eq, gte, lt, lte, sql, ilike, or } from "drizzle-orm";
 import { db } from "../../db";
-import { payments, appointments, selfserviceIncomes, loyaltyCards, loyaltyTransactions, loyaltyRewards, users, orders } from "../../../shared/schema";
+import { payments, appointments, selfserviceIncomes, loyaltyCards, loyaltyTransactions, loyaltyRewards, users, orders, privacyContacts } from "../../../shared/schema";
 import { requirePerm, requireAdmin } from "../../auth";
 import { crud } from "../../crud";
 import { audit } from "../../services/audit";
@@ -13,8 +13,11 @@ import { paidTotal, logEvent } from "../../services/appointments";
 import { getSettings } from "../../services/settings";
 import { h, HttpError, id, paging, zDay, zOptStr, toCsv } from "../../util";
 import { romeToDate, addDays } from "../../time";
+import membershipRoutes from "./membership";
+import { cardTarget, memberPhone, memberPhoneSql, resolveCard } from "../../services/loyalty-membership";
 
 const r = Router();
+r.use(membershipRoutes);
 
 // ---------- pagamenti ----------
 r.get("/payments", requirePerm("incassi"), h(async (req, res) => {
@@ -171,17 +174,25 @@ r.get("/selfservice-summary", requirePerm("incassi", "pagamenti"), h(async (req,
 r.get("/loyalty/cards", requirePerm("fidelity"), h(async (req, res) => {
   const { page, pageSize, offset } = paging(req);
   const q = String(req.query.q || "").trim();
-  const where = q ? or(ilike(loyaltyCards.code, `%${q}%`), ilike(users.lastName, `%${q}%`), ilike(users.firstName, `%${q}%`), ilike(users.email, `%${q}%`)) : undefined;
-  const rows = await db.select({ c: loyaltyCards, name: sql<string>`${users.firstName} || ' ' || ${users.lastName}`, email: users.email })
-    .from(loyaltyCards).innerJoin(users, eq(users.id, loyaltyCards.customerId)).where(where).orderBy(desc(loyaltyCards.points)).limit(pageSize).offset(offset);
-  res.json({ rows: rows.map((x) => ({ ...x.c, name: x.name, email: x.email })), page, pageSize });
+  const digits = memberPhone(q);
+  const name = sql<string>`coalesce(nullif(concat_ws(' ', ${users.firstName}, ${users.lastName}), ''), concat_ws(' ', ${privacyContacts.firstName}, ${privacyContacts.lastName}))`;
+  const where = and(eq(loyaltyCards.active, true), q ? or(
+    ilike(loyaltyCards.code, `%${q}%`), sql`${name} ilike ${`%${q}%`}`,
+    ilike(users.email, `%${q}%`), ilike(privacyContacts.email, `%${q}%`),
+    digits.length >= 3 ? sql`(${memberPhoneSql(users.phone)} like ${`%${digits}%`} or ${memberPhoneSql(privacyContacts.phone)} like ${`%${digits}%`})` : undefined,
+    sql`exists(select 1 from loyalty_cards previous where previous.merged_into_card_id = ${loyaltyCards.id} and previous.code ilike ${`%${q}%`})`,
+  ) : undefined);
+  const rows = await db.select({ c: loyaltyCards, name, email: sql`coalesce(${users.email}, ${privacyContacts.email})`, phone: sql`coalesce(${users.phone}, ${privacyContacts.phone})` })
+    .from(loyaltyCards).leftJoin(users, eq(users.id, loyaltyCards.customerId)).leftJoin(privacyContacts, eq(privacyContacts.id, loyaltyCards.contactId))
+    .where(where).orderBy(desc(loyaltyCards.points)).limit(pageSize).offset(offset);
+  res.json({ rows: rows.map((x) => ({ ...x.c, name: x.name, email: x.email, phone: x.phone })), page, pageSize });
 }));
 
 /** Rettifica manuale motivata (+/-). */
 r.post("/loyalty/adjust", requirePerm("fidelity"), h(async (req, res) => {
-  const d = z.object({ customerId: z.number().int().positive(), points: z.number().int().min(-100_000).max(100_000).refine((n) => n !== 0), reason: z.string().trim().min(3).max(160) }).parse(req.body);
+  const d = z.object({ points: z.number().int().min(-100_000).max(100_000).refine((n) => n !== 0), reason: z.string().trim().min(3).max(160) }).and(cardTarget).parse(req.body);
   const out = await db.transaction(async (tx) => {
-    const card = await ensureCard(d.customerId, tx);
+    const card = await resolveCard(d, tx);
     await adjust(card.id, d.points, d.reason, req.user!.id, tx);
     const [c] = await tx.select().from(loyaltyCards).where(eq(loyaltyCards.id, card.id));
     return c;
@@ -193,12 +204,12 @@ r.post("/loyalty/adjust", requirePerm("fidelity"), h(async (req, res) => {
 /** Utilizzo punti: premio, sconto su un appuntamento, sconto prodotti o credito shop. */
 r.post("/loyalty/redeem", requirePerm("fidelity", "pagamenti"), h(async (req, res) => {
   const d = z.object({
-    customerId: z.number().int().positive(), points: z.number().int().positive().optional(), rewardId: z.number().int().positive().optional(),
+    points: z.number().int().positive().optional(), rewardId: z.number().int().positive().optional(),
     appointmentId: z.number().int().positive().optional(), note: zOptStr(160),
-  }).parse(req.body);
+  }).and(cardTarget).parse(req.body);
   const s = await getSettings();
   const out = await db.transaction(async (tx) => {
-    const card = await ensureCard(d.customerId, tx);
+    const card = await resolveCard(d, tx);
     let points = d.points ?? 0, valueCents: number | null = null, reason = d.note || "Utilizzo punti";
     if (d.rewardId) {
       const [rw] = await tx.select().from(loyaltyRewards).where(and(eq(loyaltyRewards.id, d.rewardId), eq(loyaltyRewards.active, true)));
@@ -210,7 +221,7 @@ r.post("/loyalty/redeem", requirePerm("fidelity", "pagamenti"), h(async (req, re
       valueCents = points * s.loyalty.pointValueCents;
     }
     if (d.appointmentId) {
-      const [a] = await tx.select().from(appointments).where(and(eq(appointments.id, d.appointmentId), eq(appointments.customerId, d.customerId)));
+      const [a] = await tx.select().from(appointments).where(and(eq(appointments.id, d.appointmentId), eq(appointments.customerId, card.customerId ?? 0)));
       if (!a) throw new HttpError(404, "Appuntamento non trovato");
       const price = a.finalPriceCents ?? a.estimatedPriceCents;
       if (price == null) throw new HttpError(400, "Imposta prima il prezzo dell'appuntamento");
@@ -230,8 +241,8 @@ r.post("/loyalty/redeem", requirePerm("fidelity", "pagamenti"), h(async (req, re
 
 /** Proroga manuale della scadenza (tutti i lotti della tessera o uno solo). */
 r.post("/loyalty/extend", requirePerm("fidelity"), h(async (req, res) => {
-  const d = z.object({ customerId: z.number().int().positive(), newDate: zDay, reason: z.string().trim().min(3).max(160), lotId: z.number().int().positive().optional() }).parse(req.body);
-  const card = await ensureCard(d.customerId);
+  const d = z.object({ newDate: zDay, reason: z.string().trim().min(3).max(160), lotId: z.number().int().positive().optional() }).and(cardTarget).parse(req.body);
+  const card = await resolveCard(d);
   const n = await extendExpiry(card.id, romeToDate(d.newDate, "23:59"), d.reason, req.user!.id, d.lotId);
   await audit(req, "loyalty_extend", "loyalty_card", card.id, d);
   res.json({ updatedLots: n });

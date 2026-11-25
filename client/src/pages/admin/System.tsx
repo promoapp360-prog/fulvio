@@ -161,7 +161,7 @@ export function SettingsPage() {
       {tab === "fidelity" && <SettingsForm section="loyalty" title="Regole Fidelity Card" intro="I punti si accreditano a servizio completato e a ordine concluso; ogni servizio e prodotto può essere escluso dalla sua scheda. In caso di rimborso o annullamento i punti collegati vengono stornati automaticamente." fields={[
         { key: "enabled", label: "Programma attivo", type: "checkbox" }, { key: "pointsPerEuro", label: "Punti per ogni euro", type: "number" },
         { key: "earnOnServices", label: "I servizi generano punti", type: "checkbox" }, { key: "earnOnProducts", label: "I prodotti generano punti", type: "checkbox" },
-        { key: "welcomePoints", label: "Punti di benvenuto", type: "number" }, { key: "birthdayPoints", label: "Punti di compleanno", type: "number" },
+        { key: "welcomePoints", label: "Punti di benvenuto", type: "number", hint: "Alla registrazione, una sola volta. 0 = bonus disattivato. Non viene assegnato creando una scheda Self-Service." }, { key: "birthdayPoints", label: "Punti di compleanno", type: "number" },
         { key: "pointValueCents", label: "Valore di 1 punto (centesimi)", type: "number", hint: "Usato per sconti e credito shop. 0 = conversione disattivata" },
         { key: "minRedeemPoints", label: "Punti minimi per l'utilizzo", type: "number" },
         { key: "expiryMode", label: "Scadenza dei punti", type: "select", options: [{ value: "nessuna", label: "Nessuna scadenza" }, { value: "annuale", label: "Annuale (12 mesi dall'accumulo)" }, { value: "fissa", label: "Data fissa ogni anno" }, { value: "periodo", label: "Dopo N giorni dall'accumulo" }] },

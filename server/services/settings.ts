@@ -33,7 +33,7 @@ export const DEFAULT_SETTINGS = {
     earnOnProducts: true,
     pointValueCents: 0,            // valore di 1 punto per sconti/credito shop (0 = conversione disattivata finché non impostata)
     minRedeemPoints: 0,
-    expiryMode: "nessuna" as "nessuna" | "annuale" | "fissa" | "periodo",
+    expiryMode: "annuale" as "nessuna" | "annuale" | "fissa" | "periodo",
     expiryFixedDate: "12-31",      // per scadenza fissa (MM-GG)
     expiryDays: 365,               // per scadenza dopo un periodo
   },

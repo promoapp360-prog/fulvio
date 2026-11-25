@@ -12,6 +12,7 @@ import {
 import { requireAuth, publicUser } from "../auth";
 import { createRequest, applyAction, paidTotal, logEvent, bookingAvailability } from "../services/appointments";
 import { appointmentRequestSchema, customerDogSchema } from "../../shared/customer-booking";
+import membershipAccountRoutes from "./membership-account";
 import { ensureCard, upcomingExpiries, redeem } from "../services/loyalty";
 import { recordConsent, currentPolicyVersion } from "../services/consents";
 import { priceItems, promoDiscount } from "../services/shop";
@@ -31,6 +32,7 @@ import { privacyPolicyVersion } from "../services/privacy-policy";
 
 const r = Router();
 r.use(requireAuth);
+r.use(membershipAccountRoutes);
 const requestPhotoUpload=multer({storage:multer.memoryStorage(),limits:{fileSize:2*1024*1024,files:1}});
 const appointmentRequestLimiter=rateLimit({windowMs:60*60_000,limit:8,standardHeaders:true,legacyHeaders:false,message:{error:"Hai inviato diverse richieste. Riprova più tardi."}});
 const normalizeName=(v:string)=>v.normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim().toLocaleLowerCase("it-IT").replace(/\s+/g," ");
@@ -311,12 +313,13 @@ r.get("/payments", h(async (req, res) => {
 r.get("/loyalty", h(async (req, res) => {
   const card = await ensureCard(req.user!.id);
   const s = await getSettings();
-  const [tx, rewards, expiries] = await Promise.all([
+  const [tx, rewards, expiries, pendingClaims] = await Promise.all([
     db.select().from(loyaltyTransactions).where(eq(loyaltyTransactions.cardId, card.id)).orderBy(desc(loyaltyTransactions.id)).limit(100),
     db.select().from(loyaltyRewards).where(eq(loyaltyRewards.active, true)).orderBy(asc(loyaltyRewards.pointsCost)),
     upcomingExpiries(card.id),
+    db.select({ code: loyaltyCards.code, requestedAt: loyaltyCards.claimRequestedAt }).from(loyaltyCards).where(eq(loyaltyCards.claimRequestedBy, req.user!.id)),
   ]);
-  res.json({ card, transactions: tx.filter((t) => !(t.kind === "proroga" && t.points === 0) || true), rewards, expiries,
+  res.json({ card, transactions: tx, rewards, expiries, pendingClaims,
     rules: { pointsPerEuro: s.loyalty.pointsPerEuro, pointValueCents: s.loyalty.pointValueCents, minRedeemPoints: s.loyalty.minRedeemPoints, expiryMode: s.loyalty.expiryMode, expiryFixedDate: s.loyalty.expiryFixedDate, expiryDays: s.loyalty.expiryDays } });
 }));
 

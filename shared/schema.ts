@@ -508,7 +508,12 @@ export const selfserviceIncomes = pgTable("selfservice_incomes", {
 
 export const loyaltyCards = pgTable("loyalty_cards", {
   id: serial("id").primaryKey(),
-  customerId: integer("customer_id").notNull().references(() => users.id),
+  customerId: integer("customer_id").references(() => users.id),
+  contactId: integer("contact_id").references(() => privacyContacts.id),
+  expiryMonths: integer("expiry_months"), // null = general rule; 0 = no expiry
+  mergedIntoCardId: integer("merged_into_card_id"),
+  claimRequestedBy: integer("claim_requested_by").references(() => users.id),
+  claimRequestedAt: ts("claim_requested_at"),
   code: varchar("code", { length: 20 }).notNull(),
   points: integer("points").notNull().default(0),
   active: boolean("active").notNull().default(true),

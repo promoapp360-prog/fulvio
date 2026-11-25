@@ -16,6 +16,8 @@ export function useServices(catalog = false) {
   return useQuery<any[]>({
     queryKey: ["public-services", catalog ? "catalog" : "all"],
     queryFn: () => get(`/api/public/services${catalog ? "?view=catalog" : ""}`),
+    staleTime: 0,
+    refetchInterval: 60_000,
   });
 }
 export function useOperators() {
