@@ -19,6 +19,11 @@ test("prenotazione: neanche i vecchi link con token saltano l’accesso", () => 
   assert.match(booking, /Diventa cliente – Registrati/);
 });
 
+test("ogni fase del modulo appuntamento riporta l’utente in cima", () => {
+  const booking = source("client/src/pages/public/Booking.tsx");
+  assert.match(booking, /window\.scrollTo\(\{ top: 0, left: 0, behavior: "instant" \}\);\s*\}, \[step\]\)/);
+});
+
 test("contatori operativi escludono le richieste storiche ospite", () => {
   const stats = source("server/routes/admin/stats.ts");
   assert.match(stats, /0::int as pending_guest/);

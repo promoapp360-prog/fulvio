@@ -49,6 +49,9 @@ function RegisteredBooking({ me }: { me: any }) {
   });
   const [step, setStep] = useState(1), [busy, setBusy] = useState(false), [error, setError] = useState<unknown>(null);
   const [success, setSuccess] = useState<{ firstRequest: boolean } | null>(null);
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: "instant" });
+  }, [step]);
   const update = <K extends keyof Draft>(key: K, value: Draft[K]) => setD(old => ({ ...old, [key]: value }));
   useEffect(() => { if (!success) try { sessionStorage.setItem(storageKey, JSON.stringify(d)); } catch { /* Il form rimane comunque in memoria. */ } }, [d, storageKey, success]);
   useEffect(() => { if (!d.dogId && dogs?.length === 1) update("dogId", dogs[0].id); }, [dogs, d.dogId]);
