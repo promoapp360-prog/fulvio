@@ -29,8 +29,8 @@ test("Password corta e date impossibili rifiutate", () => {
 for (const field of ["birthDate", "coatType", "coatLength", "breed"]) {
   test(`Scheda animale: ${field} obbligatorio`, () => assert.equal(customerDogSchema.safeParse({ ...dog, [field]: "" }).success, false));
 }
-test("Alimentazione obbligatoria e stato manto escluso dalla scheda cliente", () => {
-  assert.equal(customerDogSchema.safeParse({ ...dog, food: {} }).success, false);
+test("Alimentazione facoltativa e stato manto escluso dalla scheda cliente", () => {
+  assert.equal(customerDogSchema.safeParse({ ...dog, food: {} }).success, true);
   const parsed = customerDogSchema.parse({ ...dog, coatKnots: true, coatShedding: true });
   assert.equal("coatKnots" in parsed, false); assert.equal("coatShedding" in parsed, false);
 });

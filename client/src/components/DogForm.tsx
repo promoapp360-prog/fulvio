@@ -33,6 +33,7 @@ export default function DogForm({ initial, onSubmit, onCancel, fieldsUrl = "/api
   const [err, setErr] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   const [photo, setPhoto] = useState<File | null>(null);
+  const [photoBusy, setPhotoBusy] = useState(false);
   const { data: fields } = useQuery<any[]>({ queryKey: ["dog-fields", fieldsUrl], queryFn: () => get(fieldsUrl).then((r: any) => (Array.isArray(r) ? r : r.rows).filter((f: any) => f.active)), enabled: adminExtras });
 
   const set = (k: string) => (e: any) => setD({ ...d, [k]: e?.target ? e.target.value : e });
@@ -48,9 +49,8 @@ export default function DogForm({ initial, onSubmit, onCancel, fieldsUrl = "/api
   ));
 
   const submit = async (e: React.FormEvent) => {
-    e.preventDefault(); setErr(null); setBusy(true);
+    e.preventDefault(); if (photoBusy) return; setErr(null); setBusy(true);
     try {
-      if (!adminExtras && !initial?.photoUrl && !photo) throw new Error("Carica la foto del cane");
       const nul = (v: any) => (v === "" ? null : v);
       await onSubmit({
         ...d, breed: nul(d.breed), ...(adminExtras ? { recallDays: d.recallDays ? Number(d.recallDays) : null } : { recallDays: undefined, lastRecallAt: undefined }), weightKg: d.weightKg === "" ? null : Number(String(d.weightKg).replace(",", ".")), birthDate: nul(d.birthDate), lastBath: nul(d.lastBath),
@@ -61,7 +61,7 @@ export default function DogForm({ initial, onSubmit, onCancel, fieldsUrl = "/api
 
   return (
     <form onSubmit={submit} className="space-y-4">
-      {!adminExtras ? <><CustomerDogFields value={d} onChange={setD} /><DogPhotoInput file={photo} existingUrl={initial?.photoUrl} onChange={setPhoto} /></> : <>
+      {!adminExtras ? <><CustomerDogFields value={d} onChange={setD} /><DogPhotoInput file={photo} existingUrl={initial?.photoUrl} onChange={setPhoto} onProcessingChange={setPhotoBusy} /></> : <>
       <Section title="Dati principali">
         <Field label="Nome *"><input className="input" required value={d.name} onChange={set("name")} /></Field>
         <Field label="Specie *"><select className="input" value={d.species || "cane"} onChange={set("species")}><option value="cane">Cane</option><option value="gatto">Gatto</option></select></Field>
@@ -117,7 +117,7 @@ export default function DogForm({ initial, onSubmit, onCancel, fieldsUrl = "/api
       <ErrorBox error={err} />
       <div className="flex justify-end gap-2">
         {onCancel && <button type="button" className="btn-ghost" onClick={onCancel}>Annulla</button>}
-        <button className="btn-primary" disabled={busy}>Salva scheda</button>
+        <button className="btn-primary" disabled={busy || photoBusy}>{photoBusy ? "Preparazione foto…" : "Salva scheda"}</button>
       </div>
     </form>
   );

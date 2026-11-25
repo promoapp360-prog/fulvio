@@ -40,7 +40,6 @@ r.post("/register", limiter, registrationUpload.single("photo"), h(async (req, r
     try { payload = JSON.parse(req.body.payload); } catch { throw new HttpError(400, "Dati di registrazione non validi"); }
   }
   const d = registrationSchema.parse(payload);
-  if (!req.file) throw new HttpError(400, "Carica la foto del tuo cane per completare la scheda");
   const [exists] = await db.select({ id: users.id }).from(users).where(sql`lower(${users.email}) = ${d.email}`);
   if (exists) throw new HttpError(409, "Esiste già un account con questa email");
   const { password: pw, dog, ...data } = d;
@@ -48,7 +47,7 @@ r.post("/register", limiter, registrationUpload.single("photo"), h(async (req, r
   const [privacyVersion, termsVersion] = await Promise.all([
     registrationPolicyVersion("privacy-policy"), registrationPolicyVersion("condizioni-del-servizio"),
   ]);
-  const stored = await storeDogPhoto(req.file.buffer, req.file.mimetype);
+  const stored = req.file ? await storeDogPhoto(req.file.buffer, req.file.mimetype) : null;
   let user;
   try { user = await db.transaction(async (tx) => {
     const [u] = await tx.insert(users).values({
@@ -56,15 +55,17 @@ r.post("/register", limiter, registrationUpload.single("photo"), h(async (req, r
       commWhatsapp: d.consentMarketing, consentDate: new Date(), unsubscribeToken: crypto.randomBytes(24).toString("hex"),
     }).returning();
     const [pet] = await tx.insert(dogs).values({ ...dog, ownerId: u.id }).returning();
-    await tx.insert(dogPhotos).values({ dogId: pet.id, storageKey: stored.key });
-    await tx.update(dogs).set({ photoUrl: `/api/account/dogs/${pet.id}/photo` }).where(eq(dogs.id, pet.id));
+    if (stored) {
+      await tx.insert(dogPhotos).values({ dogId: pet.id, storageKey: stored.key });
+      await tx.update(dogs).set({ photoUrl: `/api/account/dogs/${pet.id}/photo` }).where(eq(dogs.id, pet.id));
+    }
     // Nessun collegamento automatico a contatti non verificati.
     await recordConsent(tx, { userId: u.id, kind: "privacy", granted: true, proof: "presa_visione_informativa_alla_registrazione", source: "registrazione", req, policyVersion: privacyVersion });
     await recordConsent(tx, { userId: u.id, kind: "condizioni", granted: true, proof: "accettazione_condizioni_servizio", source: "registrazione", req, policyVersion: termsVersion });
     await recordConsent(tx, { userId: u.id, kind: "marketing", granted: d.consentMarketing, source: "registrazione", req, policyVersion: await currentPolicyVersion("marketing") });
     await ensureCard(u.id, tx, true);
     return u;
-  }); } catch (error) { await deleteStored(stored.key); throw error; }
+  }); } catch (error) { if (stored) await deleteStored(stored.key); throw error; }
   await new Promise<void>((resolve, reject) => req.session.regenerate(error => error ? reject(error) : resolve()));
   req.session.userId = user.id; req.session.sv = user.sessionVersion;
   await audit(req, "register", "user", user.id);

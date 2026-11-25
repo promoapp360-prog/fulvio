@@ -5,6 +5,7 @@ export const calendarDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Indica una d
   .refine(value => { const d = new Date(value + "T12:00:00Z"); return !isNaN(d.getTime()) && d.toISOString().slice(0, 10) === value; }, "Data non valida");
 const birthDay = calendarDay.refine(value => value <= today() && value >= "1900-01-01", "La data di nascita non può essere futura");
 const text = (max = 1000) => z.string().trim().min(1, "Campo obbligatorio").max(max);
+const optionalText = (max = 1000) => z.string().trim().max(max).nullish().transform(value => value ?? "");
 export const customerDogSchema = z.object({
   name: text(80), species: z.enum(["cane", "gatto"]),
   breed: text(120), size: z.enum(["mini", "piccola", "media", "grande", "gigante"]),
@@ -12,13 +13,11 @@ export const customerDogSchema = z.object({
   birthDate: birthDay,
   coatType: z.enum(["liscio", "mosso", "riccio", "duro", "altro"]),
   coatLength: z.enum(["corto", "medio", "lungo"]),
-  food: z.object({ notes: text(2000) }).passthrough(),
-  jointIssues: text(), dermatitis: text(), intolerances: text(), sensitivities: text(),
-  aggressive: z.boolean(), aggressiveNotes: z.string().max(1000).nullable().optional(),
-  otherNeeds: text(), otherPets: text(),
+  food: z.object({ notes: optionalText(2000) }).passthrough().nullish().transform(value => value ?? { notes: "" }),
+  jointIssues: optionalText(), dermatitis: optionalText(), intolerances: optionalText(), sensitivities: optionalText(),
+  aggressive: z.boolean().default(false), aggressiveNotes: optionalText(),
+  otherNeeds: optionalText(), otherPets: optionalText(),
   customFields: z.record(z.unknown()).default({}),
-}).superRefine((dog, ctx) => {
-  if (dog.aggressive && !dog.aggressiveNotes?.trim()) ctx.addIssue({ code: "custom", path: ["aggressiveNotes"], message: "Descrivi il comportamento" });
 });
 export const registrationSchema = z.object({
   email: z.string().trim().toLowerCase().email().max(255), password: z.string().min(8, "Almeno 8 caratteri").max(128),

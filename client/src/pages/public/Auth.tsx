@@ -74,14 +74,14 @@ export function RegisterPage() {
   const [f, setF] = useState({ firstName: "", lastName: "", email: "", phone: "", password: "", city: "", province: "", cap: "", birthDate: "", consentPrivacy: false, consentMarketing: false });
   const [dog, setDog] = useState<any>(newCustomerDog);
   const [photo, setPhoto] = useState<File | null>(null);
+  const [photoBusy, setPhotoBusy] = useState(false);
   const [err, setErr] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement>) => setF({ ...f, [k]: e.target.value });
   const submit = async (e: React.FormEvent) => {
-    e.preventDefault(); setBusy(true); setErr(null);
+    e.preventDefault(); if (photoBusy) return; setBusy(true); setErr(null);
     try {
-      if (!photo) throw new Error("Carica la foto del cane per completare la scheda.");
-      const form = new FormData(); form.append("payload", JSON.stringify({ ...f, dog })); form.append("photo", photo);
+      const form = new FormData(); form.append("payload", JSON.stringify({ ...f, dog })); if (photo) form.append("photo", photo);
       const u = await api("/api/auth/register", { method: "POST", form });
       qc.clear();
       qc.setQueryData(["me"], u);
@@ -110,7 +110,7 @@ export function RegisterPage() {
         </div>
         <Field label="La tua data di nascita *"><input required type="date" autoComplete="bday" max={new Date().toLocaleDateString("sv-SE")} className="input min-h-12" value={f.birthDate} onChange={set("birthDate")} /></Field>
         <CustomerDogFields value={dog} onChange={setDog} />
-        <DogPhotoInput file={photo} onChange={setPhoto} />
+        <DogPhotoInput file={photo} onChange={setPhoto} onProcessingChange={setPhotoBusy} />
         <fieldset className="rounded-xl border border-sky-200 p-4">
           <legend className="px-1 font-bold">Privacy e preferenze</legend>
           <label className="flex min-h-12 cursor-pointer items-start gap-3 py-2 text-sm leading-relaxed"><input required type="checkbox" className="mt-1 h-5 w-5 shrink-0 accent-brand-navy" checked={f.consentPrivacy} onChange={e => setF({ ...f, consentPrivacy: e.target.checked })} /><span>Ho letto l'<Link href="/privacy-policy" target="_blank" className="font-semibold underline">informativa privacy</Link> ed accetto le <Link href="/condizioni-del-servizio" target="_blank" className="font-semibold underline">condizioni del servizio</Link> *</span></label>
@@ -118,7 +118,7 @@ export function RegisterPage() {
           <p className="mt-3 text-xs leading-relaxed text-slate-600">Le comunicazioni necessarie al servizio, come conferme e promemoria dell'appuntamento, restano distinte dal marketing. Le push richiedono anche un'autorizzazione del browser dopo un tuo click.</p>
         </fieldset>
         <ErrorBox error={err} />
-        <button className="btn-primary min-h-12 w-full" disabled={busy || !f.consentPrivacy || !photo}>{busy ? "Registrazione…" : "Completa la registrazione"}</button>
+        <button className="btn-primary min-h-12 w-full" disabled={busy || photoBusy || !f.consentPrivacy}>{busy ? "Registrazione…" : photoBusy ? "Preparazione foto…" : "Completa la registrazione"}</button>
       </form>
       <p className="mt-4 text-center text-sm">Hai già un account? <Link href={`/login${window.location.search}`} className="font-semibold text-brand-blue">Accedi</Link></p>
     </AuthCard>

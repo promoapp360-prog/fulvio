@@ -32,17 +32,17 @@ async function compressedPhoto(file: File) {
   } finally { bitmap.close(); }
 }
 
-export function DogPhotoInput({ file, existingUrl, onChange }: { file: File | null; existingUrl?: string; onChange: (file: File) => void }) {
+export function DogPhotoInput({ file, existingUrl, onChange, onProcessingChange }: { file: File | null; existingUrl?: string; onChange: (file: File) => void; onProcessingChange?: (busy: boolean) => void }) {
   const [preview, setPreview] = useState(""), [error, setError] = useState<unknown>(null), [busy, setBusy] = useState(false);
   useEffect(() => { if (!file) { setPreview(""); return; } const url = URL.createObjectURL(file); setPreview(url); return () => URL.revokeObjectURL(url); }, [file]);
   const choose = async (candidate?: File) => {
     if (!candidate) return;
-    setBusy(true); setError(null);
-    try { onChange(await compressedPhoto(candidate)); } catch (e) { setError(e); } finally { setBusy(false); }
+    setBusy(true); onProcessingChange?.(true); setError(null);
+    try { onChange(await compressedPhoto(candidate)); } catch (e) { setError(e); } finally { setBusy(false); onProcessingChange?.(false); }
   };
   return <fieldset className="rounded-xl border border-sky-200 p-4">
-    <legend className="px-1 text-sm font-bold">Foto del tuo animale *</legend>
-    <p className="mb-3 text-sm text-slate-600">La carichi nella scheda e la riutilizzi per le richieste. Foto privata, compressa automaticamente sotto 1 MB.</p>
+    <legend className="px-1 text-sm font-bold">Foto del tuo animale (facoltativa)</legend>
+    <p className="mb-3 text-sm text-slate-600">Puoi aggiungerla ora o in seguito nella scheda e riutilizzarla per le richieste. Foto privata, compressa automaticamente sotto 1 MB.</p>
     {(preview || existingUrl) && <img src={preview || existingUrl} alt="Foto del tuo animale" className="mb-3 h-36 w-36 rounded-xl object-contain" />}
     <div className="flex flex-wrap gap-2">
       <label className="btn-outline min-h-11 cursor-pointer"><ImagePlus size={17} />{busy ? "Elaborazione…" : file || existingUrl ? "Sostituisci foto" : "Scegli dalla galleria"}<input disabled={busy} type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" onChange={e => void choose(e.target.files?.[0])} /></label>
@@ -58,8 +58,8 @@ export default function CustomerDogFields({ value: d, onChange }: { value: any; 
   const listId = useId();
   const { data: fields } = useQuery<any[]>({ queryKey: ["customer-dog-fields"], queryFn: () => get("/api/public/dog-fields") });
   const set = (key: string, value: unknown) => onChange({ ...d, [key]: value });
-  const input = (key: string, label: string) => <Field label={label + " *"} hint="Se non ci sono particolarità scrivi «Nessuna»; se non le conosci scrivi «Non noto».">
-    <input required maxLength={1000} className="input min-h-12" value={d[key] || ""} onChange={e => set(key, e.target.value)} />
+  const input = (key: string, label: string) => <Field label={label}>
+    <input maxLength={1000} className="input min-h-12" value={d[key] || ""} onChange={e => set(key, e.target.value)} />
   </Field>;
   return <div className="space-y-5">
     <fieldset className="grid gap-3 rounded-2xl border p-4 sm:grid-cols-2">
@@ -82,13 +82,14 @@ export default function CustomerDogFields({ value: d, onChange }: { value: any; 
       <Field label="Lunghezza del pelo *"><select required className="input min-h-12" value={d.coatLength || ""} onChange={e => set("coatLength", e.target.value)}><option value="">Seleziona…</option>{["corto", "medio", "lungo"].map(length => <option key={length} value={length}>{length[0].toUpperCase() + length.slice(1)}</option>)}</select></Field>
     </fieldset>
     <fieldset className="grid gap-3 rounded-2xl border p-4 sm:grid-cols-2">
-      <legend className="px-1 font-bold text-brand-navy">Benessere ed abitudini</legend>
+      <legend className="px-1 font-bold text-brand-navy">Parlaci del Benessere del tuo Animale</legend>
+      <p className="text-sm text-slate-600 sm:col-span-2">Queste informazioni sono facoltative. Condividi solo ciò che desideri farci sapere per prenderci cura del tuo animale.</p>
       {input("jointIssues", "Problematiche articolari")}{input("dermatitis", "Dermatiti")}
       {input("intolerances", "Intolleranze")}{input("sensitivities", "Sensibilità")}
-      <Field label="Può mordere o mostrare aggressività? *"><select required className="input min-h-12" value={d.aggressive ? "si" : "no"} onChange={e => set("aggressive", e.target.value === "si")}><option value="no">No</option><option value="si">Sì</option></select></Field>
+      <Field label="Può mordere o mostrare aggressività?"><select className="input min-h-12" value={d.aggressive ? "si" : "no"} onChange={e => set("aggressive", e.target.value === "si")}><option value="no">No</option><option value="si">Sì</option></select></Field>
       {d.aggressive && input("aggressiveNotes", "Dettagli comportamento")}
       {input("otherNeeds", "Altre esigenze")}{input("otherPets", "Altri animali in famiglia")}
-      <Field label="Alimentazione abituale *" className="sm:col-span-2" hint="Indica tipo di alimentazione, eventuali marchi ed esigenze."><textarea required maxLength={2000} className="input min-h-24" value={d.food?.notes || ""} onChange={e => set("food", { ...d.food, notes: e.target.value })} /></Field>
+      <Field label="Alimentazione abituale" className="sm:col-span-2" hint="Se vuoi, indica tipo di alimentazione, eventuali marchi ed esigenze."><textarea maxLength={2000} className="input min-h-24" value={d.food?.notes || ""} onChange={e => set("food", { ...d.food, notes: e.target.value })} /></Field>
     </fieldset>
     {!!fields?.length && <fieldset className="grid gap-3 rounded-2xl border p-4 sm:grid-cols-2"><legend className="px-1 font-bold">Informazioni richieste dal salone</legend>
       {fields.map(field => <Field key={field.fieldKey} label={field.label + (field.required ? " *" : "")}>

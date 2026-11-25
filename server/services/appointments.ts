@@ -66,7 +66,6 @@ export async function createRequest(customerId: number, input: z.infer<typeof ap
   if (!dog) throw new HttpError(404, "Cane non trovato");
   if (!customerDogSchema.safeParse(dog).success) throw new HttpError(422, "Completa i dati obbligatori della scheda cane nella tua area personale.");
   const [photo] = await db.select().from(dogPhotos).where(eq(dogPhotos.dogId, dog.id)).limit(1);
-  if (!photo) throw new HttpError(422, "Aggiungi la foto nella scheda cane prima di prenotare.");
   const [cust] = await db.select().from(users).where(eq(users.id, customerId));
   if (!cust?.consentPrivacy) throw new HttpError(422, "Completa la registrazione e la presa visione dell’informativa prima di prenotare.");
   const [receipt] = await db.select().from(customerConsents)
@@ -119,7 +118,7 @@ export async function createRequest(customerId: number, input: z.infer<typeof ap
         await logEvent(tx, a.id, customerId, "richiesta_creata", null, "richiesta", { serviceIds: qt.serviceIds,
           coatKnotsToday: input.coatKnotsToday, coatSheddingToday: input.coatSheddingToday,
           durationNeedsReview: a.durationNeedsReview, privacySource: "registrazione" });
-        await tx.insert(appointmentPhotos).values({ appointmentId: a.id, storageKey: photo.storageKey });
+        if (photo) await tx.insert(appointmentPhotos).values({ appointmentId: a.id, storageKey: photo.storageKey });
         if (input.boarding) {
           const [boarding] = await tx.insert(boardingRequests).values({ ...input.boarding, customerId, dogId: dog.id,
             customerNotes: `Collegata alla richiesta toelettatura ${a.id}. ${input.notes || ""}`.slice(0, 2000) }).returning();

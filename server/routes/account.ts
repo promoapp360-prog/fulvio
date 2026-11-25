@@ -159,15 +159,15 @@ r.get("/dogs", h(async (req, res) => {
 r.post("/dogs", requestPhotoUpload.single("photo"), h(async (req, res) => {
   const d = customerDogSchema.parse(parseDogPayload(req));
   d.customFields = await validateCustomFields(d.customFields);
-  if (!req.file) throw new HttpError(400, "Carica la foto del cane");
-  const photo = await storeDogPhoto(req.file.buffer, req.file.mimetype);
+  const photo = req.file ? await storeDogPhoto(req.file.buffer, req.file.mimetype) : null;
   let dog;
   try { dog = await db.transaction(async tx => {
     const [pet] = await tx.insert(dogs).values({ ...d, ownerId: req.user!.id }).returning();
+    if (!photo) return pet;
     await tx.insert(dogPhotos).values({ dogId: pet.id, storageKey: photo.key });
     const [saved] = await tx.update(dogs).set({ photoUrl: `/api/account/dogs/${pet.id}/photo` }).where(eq(dogs.id, pet.id)).returning();
     return saved;
-  }); } catch (error) { await deleteStored(photo.key); throw error; }
+  }); } catch (error) { if (photo) await deleteStored(photo.key); throw error; }
   res.status(201).json(dog);
 }));
 
@@ -177,12 +177,10 @@ r.patch("/dogs/:id", requestPhotoUpload.single("photo"), h(async (req, res) => {
   if (!current) throw new HttpError(404, "Cane non trovato");
   const d = customerDogSchema.parse({ ...current, ...parseDogPayload(req) });
   d.customFields = await validateCustomFields(d.customFields);
-  const [oldPhoto] = await db.select().from(dogPhotos).where(eq(dogPhotos.dogId, dogId));
-  if (!oldPhoto && !req.file) throw new HttpError(400, "Carica la foto del cane");
   const photo = req.file ? await storeDogPhoto(req.file.buffer, req.file.mimetype) : null;
   let dog;
   try { dog = await db.transaction(async tx => {
-    const [saved] = await tx.update(dogs).set({ ...d, photoUrl: `/api/account/dogs/${dogId}/photo`, updatedAt: new Date() }).where(eq(dogs.id, dogId)).returning();
+    const [saved] = await tx.update(dogs).set({ ...d, ...(photo ? { photoUrl: `/api/account/dogs/${dogId}/photo` } : {}), updatedAt: new Date() }).where(eq(dogs.id, dogId)).returning();
     if (photo) await tx.insert(dogPhotos).values({ dogId, storageKey: photo.key }).onConflictDoUpdate({ target: dogPhotos.dogId, set: { storageKey: photo.key, createdAt: new Date() } });
     return saved;
   }); } catch (error) { if (photo) await deleteStored(photo.key); throw error; }
