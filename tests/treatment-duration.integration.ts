@@ -47,6 +47,15 @@ try {
   }
   cookie = await login(`duration-${run}-0@example.test`);
   customerCookie = await login(`duration-${run}-1@example.test`);
+  assert.equal((await call("public/guest-slots", undefined, "")).status, 410);
+  assert.equal((await call("public/guest-requests/1?token=legacy-token", undefined, "")).status, 410);
+  for (const path of ["public/guest-bookings", "account/appointments"]) {
+    const response = await fetch(`http://localhost:80/api/${path}`, {
+      method: "POST", headers: { "Content-Type": "application/json", "x-requested-with": "fetch" }, body: "{}",
+    });
+    assert.equal(response.status, path.startsWith("public/") ? 410 : 401);
+  }
+  assert.equal((await call("admin/guest-requests")).status, 410);
   for (const ownerId of [userIds[1], userIds[1], userIds[2]]) {
     const [dog] = await db.insert(dogs).values({ ownerId, name: `Durata-${run}`, size: "media" }).returning();
     dogIds.push(dog.id);
@@ -100,7 +109,7 @@ try {
       firstName: gc.firstName, lastName: gc.lastName, email: gc.email, phone: gc.phone, breed: "Meticcio",
       guestCustomerId: gc.id, guestDogId: gd.id, serviceId: catalog[0].id, operatorId: operator.id,
       startAt, endAt: new Date(startAt.getTime() + 60 * 60_000), durationMin: 60,
-      status: "confermata", tokenSeed: crypto.randomBytes(24).toString("hex"),
+      status: day === "2020-01-01" ? "confermata" : "richiesta", tokenSeed: crypto.randomBytes(24).toString("hex"),
       requestKey: crypto.randomUUID(), payloadHash: crypto.randomBytes(24).toString("hex"), dedupeKey: crypto.randomUUID(),
     }).returning();
     guestIds.push(row.id);
@@ -113,6 +122,24 @@ try {
   assert.equal(guest.durationMin, 60);
   assert.equal(guest.status, "confermata");
   console.log("PASS ospiti esistenti: salvataggio e recupero storico senza account e senza cambiare lo slot");
+  for (const action of ["conferma", "proponi", "rifiuta"]) {
+    const response = await fetch(`http://localhost:80/api/admin/guest-bookings/${guestIds[1]}/action`, {
+      method: "POST", headers: { Cookie: cookie, "Content-Type": "application/json", "x-requested-with": "fetch" },
+      body: JSON.stringify({ action }),
+    });
+    assert.equal(response.status, 410);
+  }
+  const [unchanged] = await db.select().from(guestBookings).where(eq(guestBookings.id, guestIds[1]));
+  assert.equal(unchanged.status, "richiesta");
+  const dashboard = await call("admin/dashboard");
+  assert.equal(dashboard.status, 200);
+  assert.equal(dashboard.data.counts.pending_guest, 0);
+  const expected = await pool.query(`select count(*)::int as n from appointments
+    where status in ('richiesta','in_valutazione')
+      or (change_request is not null and status not in ('richiesta','in_valutazione','annullata','rifiutata','completata'))`);
+  assert.equal(dashboard.data.counts.actionable_requests, expected.rows[0].n);
+  assert.equal((await call(`admin/guest-bookings/${guestIds[1]}`)).status, 200);
+  console.log("PASS solo registrati: invio anonimo bloccato, vecchi link disattivati, azioni ospite bloccate, contatori corretti e archivio conservato");
 } finally {
   await db.transaction(async tx => {
     if (appIds.length) {

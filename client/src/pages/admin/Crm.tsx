@@ -76,8 +76,9 @@ export function Customers() {
         <a href="/api/admin/customers/export.csv" className="btn-outline btn-sm"><Download size={14} /> Esporta CSV</a>
         <button className="btn-primary btn-sm" onClick={() => setCreating(true)}><Plus size={14} /> Nuovo cliente</button>
       </PageTitle>
-      <Tabs value={tab} onChange={setTab} items={[{ value: "elenco", label: "Clienti registrati" }, { value:"ospiti",label:"Clienti ospiti" }, { value: "duplicati", label: "Possibili duplicati" }]} />
+      <Tabs value={tab} onChange={setTab} items={[{ value: "elenco", label: "Clienti registrati" }, { value:"ospiti",label:"Archivio storico ospiti" }, { value: "duplicati", label: "Possibili duplicati" }]} />
       {tab==="ospiti"?<div>
+        <p className="mb-3 rounded-xl bg-slate-50 p-3 text-sm text-slate-600">Archivio delle anagrafiche precedenti alla chiusura del percorso ospite. Non permette nuove richieste o approvazioni: per prenotare è obbligatorio registrarsi.</p>
         <div className="relative mb-3 w-full max-w-md"><Search size={16} className="absolute left-3 top-2.5 text-slate-400"/><input className="input pl-9" placeholder="Cerca nome, recapito o cane ospite" value={q} onChange={e=>setQ(e.target.value)}/></div>
         {guestLoading?<Spinner/>:!guestData?.rows?.length?<Empty>Nessuna anagrafica ospite presente.</Empty>:<div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white"><table className="table-dp"><thead><tr><th>Cliente ospite</th><th>Recapiti</th><th>Cani</th><th>Richieste</th><th>Verifica</th><th>Collegamento</th></tr></thead><tbody>{guestData.rows.map((c:any)=><tr key={c.id} data-testid={`crm-guest-${c.id}`} className="cursor-pointer hover:bg-brand-sky" onClick={()=>setGuestDetail(c.id)}>
           <td className="font-bold">{c.lastName} {c.firstName}<span className="badge ml-1 bg-amber-100 text-amber-800">Ospite</span></td><td>{c.email}<br/>{c.phone}</td><td>{c.dogs||"—"}</td><td>{c.requests} · ultimo {c.lastRequest?fmtDate(c.lastRequest):"—"}</td>
@@ -123,7 +124,7 @@ function GuestCustomerDetail({id:guestId,onBack}:{id:number;onBack:()=>void}){
   const c=data.customer;
   return <div>
     <button className="btn-outline btn-sm mb-3" onClick={onBack}><ArrowLeft size={14}/> Torna alle anagrafiche ospiti</button>
-    <PageTitle title={`${c.firstName} ${c.lastName}`} subtitle="Anagrafica cliente ospite · nessun account creato">
+    <PageTitle title={`${c.firstName} ${c.lastName}`} subtitle="Archivio storico ospite · percorso disattivato · nessun account creato">
       <a href={`mailto:${c.email}`} className="btn-outline btn-sm"><Mail size={14}/> Email</a>{c.phone&&<a href={`tel:${c.phone}`} className="btn-outline btn-sm"><Phone size={14}/> Chiama</a>}
     </PageTitle>
     <div className="mb-4 grid gap-3 text-sm sm:grid-cols-3">

@@ -131,9 +131,8 @@ r.get("/dashboard", h(async (_req, res) => {
     rows(sql`select
       (select count(*) from appointments where status in ('richiesta','in_valutazione'))::int as pending,
       (select count(*) from appointments where change_request is not null and status not in ('annullata','rifiutata','completata'))::int as changes,
-      (select count(*) from guest_bookings where status in ('richiesta','in_valutazione','proposta'))::int as pending_guest,
-      ((select count(*) from appointments where status in ('richiesta','in_valutazione') or (change_request is not null and status not in ('richiesta','in_valutazione','annullata','rifiutata','completata')))
-        + (select count(*) from guest_bookings where status in ('richiesta','in_valutazione','proposta')))::int as actionable_requests,
+      0::int as pending_guest,
+      (select count(*) from appointments where status in ('richiesta','in_valutazione') or (change_request is not null and status not in ('richiesta','in_valutazione','annullata','rifiutata','completata')))::int as actionable_requests,
       (select count(*) from appointments where status = 'attesa_pagamento')::int as awaiting_payment,
       (select count(*) from appointments where start_at >= ${from} and start_at < ${to} and status in ('confermata','attesa_pagamento','completata'))::int as today_apps,
       (select count(*) from appointments where start_at >= ${monthFrom} and status = 'annullata')::int as month_cancelled,

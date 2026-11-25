@@ -12,7 +12,6 @@ import { cancelOneSignalAppointmentReminder, scheduleOneSignalReminder } from ".
 import { audit } from "../../services/audit";
 import { h, HttpError, id, zDay, zTime, zOptStr } from "../../util";
 import { romeToDate, addDays, fmtRome } from "../../time";
-import { actOnGuestBooking } from "../../services/guest-bookings";
 import { readStored } from "../../services/storage";
 
 const r = Router();
@@ -69,23 +68,7 @@ r.get("/requests", requirePerm("richieste"), h(async (req, res) => {
 
 /** Ospiti: archivio separato, nessun account o scheda appuntamento fittizia. */
 r.get("/guest-requests",requirePerm("richieste"),h(async(req,res)=>{
-  const status=String(req.query.status||"aperte");
-  const filters:any[]=[status==="aperte"?inArray(guestBookings.status,["richiesta","in_valutazione","proposta"]):eq(guestBookings.status,status as any)];
-  if(req.query.from)filters.push(gte(guestBookings.startAt,romeToDate(zDay.parse(req.query.from),"00:00")));
-  if(req.query.to)filters.push(lt(guestBookings.startAt,romeToDate(addDays(zDay.parse(req.query.to),1),"00:00")));
-  if(req.query.operatorId)filters.push(eq(guestBookings.operatorId,id(req.query.operatorId)));
-  const rows=await db.select({
-    booking:guestBookings,customer:guestCustomers,dog:guestDogs,
-    serviceName:services.name,operatorName:operators.name,operatorColor:operators.color,
-  }).from(guestBookings).leftJoin(guestCustomers,eq(guestCustomers.id,guestBookings.guestCustomerId))
-    .leftJoin(guestDogs,eq(guestDogs.id,guestBookings.guestDogId))
-    .innerJoin(services,eq(services.id,guestBookings.serviceId))
-    .leftJoin(operators,eq(operators.id,guestBookings.operatorId))
-    .where(and(...filters)).orderBy(asc(guestBookings.startAt)).limit(200);
-  const serviceMap=new Map((await db.select({id:services.id,name:services.name}).from(services)).map(s=>[s.id,s.name]));
-  res.json(rows.map(row=>({...row,serviceNames:(row.booking.servicePriceSnapshot||[]).map((s:any)=>s.name).filter(Boolean).length
-    ? row.booking.servicePriceSnapshot.map((s:any)=>s.name).filter(Boolean)
-    : (row.booking.requestedServiceIds||[]).map((sid:number)=>serviceMap.get(sid)).filter(Boolean)})));
+  res.status(410).json({ error: "Il percorso ospite è disattivato. I dati precedenti sono conservati nell’archivio storico del CRM." });
 }));
 
 r.get("/guest-bookings/:id",requirePerm("richieste","clienti"),h(async(req,res)=>{
@@ -109,10 +92,9 @@ r.get("/guest-bookings/:id/photo",requirePerm("richieste","clienti"),h(async(req
   res.set({"Content-Type":"image/webp","Cache-Control":"private, no-store","X-Content-Type-Options":"nosniff"}).send(data);
 }));
 
-r.post("/guest-bookings/:id/action",requirePerm("richieste"),h(async(req,res)=>{
-  const d=z.object({action:z.enum(["conferma","rifiuta","proponi"]),date:zDay.optional(),time:zTime.optional(),operatorId:z.number().int().positive().nullable().optional(),finalPriceCents:z.number().int().min(0).nullable().optional(),reason:zOptStr(1000)}).parse(req.body);
-  res.json(await actOnGuestBooking(req.params.id,req.user!.id,d));
-}));
+r.post("/guest-bookings/:id/action", requirePerm("richieste"), (_req, res) => {
+  res.status(410).json({ error: "Le richieste ospite sono archiviate e non sono più gestibili. Il cliente deve registrarsi e inviare una nuova richiesta." });
+});
 
 r.get("/appointments/:id/photo",requirePerm("richieste","clienti"),h(async(req,res)=>{
   const [photo]=await db.select({storageKey:appointmentPhotos.storageKey}).from(appointmentPhotos).where(eq(appointmentPhotos.appointmentId,id(req.params.id)));

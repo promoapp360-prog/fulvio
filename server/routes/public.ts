@@ -18,7 +18,6 @@ import { todayRome, addDays } from "../time";
 import { BUSINESS } from "../../shared/constants";
 import { users, productVariants, productCategories } from "../../shared/schema";
 import { recordConsent } from "../services/consents";
-import { guestRequestStatus } from "../services/guest-bookings";
 import { cookieConfiguration } from "../services/cookie-config";
 import type { Request } from "express";
 
@@ -143,11 +142,9 @@ r.get("/dog-fields", h(async (_req, res) => {
 r.get("/guest-slots", (_req, res) => res.status(410).json({ error: "Accedi o registrati per richiedere un appuntamento." }));
 r.post("/guest-bookings", (_req, res) => res.status(410).json({ error: "Le richieste come ospite non sono più disponibili. Accedi o registrati." }));
 
-r.get("/guest-requests/:id",h(async(req,res)=>{
-  res.set("Cache-Control","no-store");
-  const token=z.string().min(32).max(128).parse(req.query.token);
-  res.json(await guestRequestStatus(id(req.params.id),token));
-}));
+r.get("/guest-requests/:id", (_req, res) => {
+  res.set("Cache-Control", "no-store").status(410).json({ error: "Il percorso ospite non è più disponibile. Accedi o registrati per richiedere un appuntamento." });
+});
 
 r.get("/products", h(async (req, res) => {
   const s = await getSettings();

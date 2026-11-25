@@ -7,7 +7,7 @@ import { Spinner, ErrorBox, Field } from "@/components/ui";
 import { get, post } from "@/lib/api";
 import { useMe } from "@/lib/auth";
 import { usePublicSettings } from "@/lib/settings";
-import { addDaysISO, todayISO, fmtDay, fmtDateTime } from "@/lib/format";
+import { addDaysISO, todayISO, fmtDay } from "@/lib/format";
 import { euro } from "@shared/constants";
 import { bookingServiceIds, customerDogSchema, isStripping } from "@shared/customer-booking";
 import { useServices } from "./Pages";
@@ -26,11 +26,6 @@ const successText = "Richiesta inviata! L'appuntamento è confermato solo dopo l
 
 export default function BookingPage() {
   const { data: me, isLoading } = useMe();
-  const params = new URLSearchParams(window.location.search), requestId = params.get("request"), token = params.get("token");
-  const tracking = useQuery<any>({ queryKey: ["guest-request-status", requestId, token],
-    queryFn: () => get(`/api/public/guest-requests/${requestId}?token=${encodeURIComponent(token || "")}`),
-    enabled: !!requestId && !!token, retry: false });
-  if (requestId && token) return <><PageHero title="La tua richiesta" subtitle="Stato della richiesta già inviata" mascot="toelettatura" /><div className="container-dp py-8"><div className="card mx-auto max-w-xl">{tracking.isLoading ? <Spinner /> : tracking.error ? <p role="alert">Link non valido o non più disponibile.</p> : <><h2 className="font-bold">Richiesta #{requestId}: {tracking.data?.status}</h2><p className="mt-3">{tracking.data?.serviceName} · {fmtDateTime(tracking.data?.startAt)}</p><p className="mt-3 text-sm">Per informazioni o variazioni contatta il salone.</p></>}</div></div></>;
   if (isLoading) return <Spinner />;
   if (!me) return <><PageHero title={title} subtitle="Accedi o crea il tuo account per richiedere un appuntamento." mascot="toelettatura" />
     <div className="container-dp py-8"><div className="mx-auto grid max-w-3xl gap-4 sm:grid-cols-2">

@@ -1,13 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronLeft, ChevronRight, Plus, Dog, Mail, Phone } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
 import { PageTitle, Tabs, Spinner, Modal, Field, MoneyInput, Check, ErrorBox, Empty, StatusBadge, useToast } from "@/components/ui";
 import { get, post } from "@/lib/api";
 import { useMe, can } from "@/lib/auth";
 import { todayISO, addDaysISO, weekdayISO, romeParts, fmtDay, fmtDateTime } from "@/lib/format";
 import { STATUS_COLORS, STATUS_LABELS, WEEKDAYS, euro } from "@shared/constants";
 import AppointmentDetail, { useAdminOperators } from "./AppointmentDetail";
-import TreatmentDuration from "./TreatmentDuration";
 
 type View = "giorno" | "settimana" | "mese";
 const START_H = 8, END_H = 20, PX_PER_MIN = 1.3;
@@ -25,12 +24,10 @@ export default function Agenda() {
   const [day, setDay] = useState(todayISO());
   const [opFilter, setOpFilter] = useState<string>("");
   const [open, setOpen] = useState<number | null>(null);
-  const [openGuest,setOpenGuest]=useState<number|null>(null);
   const [creating, setCreating] = useState(false);
   const { data: ops } = useAdminOperators();
   const r = rangeFor(view, day);
   const { data, isLoading } = useQuery<any[]>({ queryKey: ["agenda", r.from, r.to, opFilter], queryFn: () => get(`/api/admin/appointments?from=${r.from}&to=${r.to}${opFilter ? `&operatorId=${opFilter}` : ""}`), refetchInterval: 120_000 });
-  const {data:confirmedGuests}=useQuery<any[]>({queryKey:["confirmed-guest-agenda",r.from,r.to,opFilter],queryFn:()=>get(`/api/admin/guest-requests?status=confermata&from=${r.from}&to=${r.to}${opFilter?`&operatorId=${opFilter}`:""}`),refetchInterval:120_000});
   const step = view === "giorno" ? 1 : view === "settimana" ? 7 : 30;
   const move = (n: number) => setDay(view === "mese" ? (() => { const [y, m] = day.split("-").map(Number); const d = new Date(Date.UTC(y, m - 1 + n, 1)); return d.toISOString().slice(0, 10); })() : addDaysISO(day, n * step));
   const visibleOps = (ops || []).filter((o) => o.active && (!opFilter || String(o.id) === opFilter));
@@ -52,18 +49,11 @@ export default function Agenda() {
           </select>
         </div>
       </div>
-      {!!confirmedGuests?.length&&<section className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 p-3">
-        <h2 className="mb-2 font-bold text-amber-950">Richieste ospiti approvate · {confirmedGuests.length}</h2>
-        <div className="flex gap-2 overflow-x-auto pb-1">{confirmedGuests.map((row:any)=><button key={row.booking.id} onClick={()=>setOpenGuest(row.booking.id)} className="min-w-56 rounded-xl border border-amber-200 bg-white p-3 text-left">
-          <span className="badge bg-amber-100 text-amber-800">Ospite</span><p className="mt-1 font-bold">{romeParts(row.booking.startAt).time} · {row.dog?.name||row.booking.dogName}</p><p className="text-xs">{(row.serviceNames||[row.serviceName]).join(", ")} · {row.operatorName||"—"}</p>
-        </button>)}</div>
-      </section>}
       <div className="mb-3 flex flex-wrap gap-3 text-xs">{Object.entries(STATUS_LABELS).filter(([k]) => !["annullata", "rifiutata"].includes(k)).map(([k, v]) => <span key={k} className="flex items-center gap-1"><span className="h-3 w-3 rounded" style={{ background: STATUS_COLORS[k] }} />{v}</span>)}</div>
       {isLoading ? <Spinner /> : view === "giorno" ? <DayView day={day} apps={data || []} ops={visibleOps} onOpen={setOpen} />
         : view === "settimana" ? <WeekView from={r.from} apps={data || []} onOpen={setOpen} onDay={(d) => { setDay(d); setView("giorno"); }} />
         : <MonthView from={r.from} to={r.to} apps={data || []} onDay={(d) => { setDay(d); setView("giorno"); }} />}
       <AppointmentDetail id={open} onClose={() => setOpen(null)} />
-      <GuestBookingDetail id={openGuest} onClose={()=>setOpenGuest(null)} />
       {creating && <NewAppointment day={day} onClose={() => setCreating(false)} />}
     </div>
   );
@@ -220,28 +210,11 @@ export function Requests() {
   const params = new URLSearchParams(window.location.search);
   const [status, setStatus] = useState("aperte");
   const [open, setOpen] = useState<number | null>(params.get("id") ? Number(params.get("id")) : null);
-  const [openGuest,setOpenGuest]=useState<number|null>(params.get("guestId")?Number(params.get("guestId")):null);
   const { data, isLoading } = useQuery<any[]>({ queryKey: ["requests", status], queryFn: () => get(`/api/admin/requests?status=${status}`), enabled: status !== "storico", refetchInterval: 120_000 });
-  const {data:guestData,isLoading:guestLoading}=useQuery<any[]>({queryKey:["guest-requests",status],queryFn:()=>get(`/api/admin/guest-requests?status=${status}`),enabled:status!=="storico",refetchInterval:120_000});
   return (
     <div>
-      <PageTitle title="Richieste di prenotazione" subtitle="Nessuna richiesta diventa definitiva senza la tua conferma" />
+      <PageTitle title="Richieste di prenotazione" subtitle="Solo clienti registrati. Nessuna richiesta diventa definitiva senza la tua conferma." />
       <Tabs value={status} onChange={setStatus} items={[{ value: "aperte", label: "Da gestire" }, { value: "confermata", label: "Confermate" }, { value: "rifiutata", label: "Rifiutate" }, { value: "storico", label: "Annullamenti e assenze" }]} />
-      {status!=="storico"&&<section className="mb-5">
-        <h2 className="mb-2 text-lg font-bold">Richieste ospiti <span className="badge ml-1 bg-brand-sky text-brand-navy">{guestData?.length||0}</span></h2>
-        <p className="mb-3 text-sm text-slate-600">Persone senza account: ciascuna richiesta resta in attesa della tua approvazione.</p>
-        {guestLoading?<Spinner/>:!guestData?.length?<Empty>Nessuna richiesta ospite in questo stato.</Empty>:<div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
-          <table className="table-dp"><thead><tr><th>Quando</th><th>Cliente ospite</th><th>Cane</th><th>Servizi</th><th>Operatore</th><th>Stato</th><th>Ricevuta</th></tr></thead><tbody>{guestData.map((row:any)=>(
-            <tr key={row.booking.id} data-testid={`guest-request-${row.booking.id}`} className="cursor-pointer hover:bg-brand-sky" onClick={()=>setOpenGuest(row.booking.id)}>
-              <td className="font-bold">{fmtDateTime(row.booking.proposedStartAt||row.booking.startAt)}</td>
-              <td><span className="badge mr-1 bg-amber-100 text-amber-800">Ospite</span><br/>{row.booking.firstName} {row.booking.lastName}<br/><span className="text-xs">{row.booking.email}<br/>{row.booking.phone}</span>{row.customer?.needsManualReview&&<span className="badge mt-1 bg-red-100 text-red-700">Verifica anagrafica</span>}</td>
-              <td>{row.dog?.name||row.booking.dogName}<br/><span className="text-xs text-slate-500">{row.dog?.breed||row.booking.breed}</span></td>
-              <td>{(row.booking.requestedServiceIds||[]).length>1?"Più servizi":row.serviceName}<br/><span className="text-xs text-slate-500">{row.booking.durationMin} min</span></td>
-              <td>{row.operatorName||"—"}</td><td><StatusBadge status={row.booking.status}/></td><td className="text-xs">{fmtDateTime(row.booking.createdAt)}</td>
-            </tr>
-          ))}</tbody></table>
-        </div>}
-      </section>}
       {status === "storico" ? <Cancellations onOpen={setOpen} /> : isLoading ? <Spinner /> : !data?.length ? <Empty>Nessuna richiesta.</Empty> : (
         <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
           <table className="table-dp"><thead><tr><th>Quando</th><th>Cliente</th><th>Cane</th><th>Servizio</th><th>Operatore</th><th>Stato</th><th>Ricevuta</th></tr></thead>
@@ -254,31 +227,8 @@ export function Requests() {
         </div>
       )}
       <AppointmentDetail id={open} onClose={() => setOpen(null)} />
-      <GuestBookingDetail id={openGuest} onClose={()=>setOpenGuest(null)} />
     </div>
   );
-}
-
-export function GuestBookingDetail({id:bookingId,onClose}:{id:number|null;onClose:()=>void}){
-  const qc=useQueryClient();const toast=useToast();const {data}=useQuery<any>({queryKey:["admin-guest-booking",bookingId],queryFn:()=>get(`/api/admin/guest-bookings/${bookingId}`),enabled:!!bookingId});
-  const {data:ops}=useAdminOperators();const [reason,setReason]=useState("");const [busy,setBusy]=useState(false);const [err,setErr]=useState<unknown>(null);
-  const [when,setWhen]=useState({date:"",time:"",operatorId:""});
-  const [finalPriceCents,setFinalPriceCents]=useState<number|null>(null);
-  useEffect(()=>{if(data?.booking){const p=romeParts(data.booking.proposedStartAt||data.booking.startAt);setWhen({date:p.day,time:p.time,operatorId:String(data.booking.proposedOperatorId||data.booking.operatorId||"")});setFinalPriceCents(data.booking.finalPriceCents??null);}},[data]);
-  const act=async(action:"conferma"|"rifiuta"|"proponi")=>{setErr(null);setBusy(true);try{await post(`/api/admin/guest-bookings/${bookingId}/action`,{action,date:when.date,time:when.time,operatorId:Number(when.operatorId)||null,finalPriceCents:action==="conferma"?finalPriceCents:undefined,reason:reason||null});toast(action==="conferma"?"Richiesta ospite confermata":action==="proponi"?"Nuovo orario proposto":"Richiesta ospite rifiutata");for(const key of ["guest-requests","admin-guest-booking","guest-customers","agenda","dashboard"])qc.invalidateQueries({queryKey:[key]});}catch(e){setErr(e);}finally{setBusy(false);}};
-  if(!bookingId)return null;
-  return <Modal open={!!bookingId} onClose={onClose} title={data?.dog?.name?`Ospite · ${data.dog.name}`:"Richiesta ospite"} wide>
-    {!data?<Spinner/>:<div className="space-y-4">
-      <div className="flex flex-wrap items-start justify-between gap-3 rounded-xl bg-brand-sky p-4"><div><span className="badge mb-2 bg-amber-100 text-amber-800">Richiesta ospite</span><h3 className="text-lg font-bold">{data.booking.firstName} {data.booking.lastName}</h3><p className="flex flex-wrap items-center gap-3 text-sm"><a className="inline-flex items-center gap-1 underline" href={`mailto:${data.booking.email}`}><Mail size={14}/>{data.booking.email}</a><a className="inline-flex items-center gap-1 underline" href={`tel:${data.booking.phone}`}><Phone size={14}/>{data.booking.phone}</a></p></div><StatusBadge status={data.booking.status}/></div>
-      <div className="grid gap-3 md:grid-cols-2">
-         <section className="rounded-xl border p-4"><h3 className="mb-2 font-bold"><Dog className="mr-1 inline text-brand-turquoise" size={17}/>Profilo {data.dog?.species==="gatto"?"gatto":"cane"}</h3><p><b>{data.dog?.name||data.booking.dogName}</b> · {data.dog?.breed||data.booking.breed}</p>{data.dog&&<><p>Taglia stimata {data.dog.size} · circa {data.dog.weightKg} kg · {data.dog.ageYears??"—"} anni {data.dog.ageMonths||0} mesi</p><p>Pelo: {data.dog.coatType}, {data.dog.coatLength.toLowerCase()} · {(data.dog.coatConditions||[]).join(", ")}</p>{data.dog.coatNotes&&<p>Altro: {data.dog.coatNotes}</p>}</>}{data.dog&&<img data-testid="guest-dog-photo" src={`/api/admin/guest-dogs/${data.dog.id}/photo`} alt={`Foto di ${data.dog.name}`} className="mt-3 max-h-56 rounded-xl object-contain" onError={e=>(e.currentTarget.style.display="none")}/>}</section>
-         <section className="rounded-xl border p-4"><h3 className="mb-2 font-bold">Prestazioni e richiesta</h3><ul className="space-y-1">{(data.booking.servicePriceSnapshot||[]).map((s:any)=><li key={s.serviceId}><b>{s.name}</b> · {s.pricingType==="fascia"&&s.priceCents!=null&&s.priceMaxCents!=null?`${euro(s.priceCents)}–${euro(s.priceMaxCents)}`:s.pricingType==="percentuale"&&s.percentageBasisPoints!=null?`+${s.percentageBasisPoints/100}%`:s.pricingType==="preventivo"?"da valutare":s.priceCents!=null?`${s.pricingType==="da"?"da ":""}${euro(s.priceCents)}`:"prezzo da definire"} · {s.durationMin} min</li>)}</ul><p className="mt-2">Stima: {data.booking.estimatedPriceCents!=null?euro(data.booking.estimatedPriceCents):"da definire / confermare"} · durata totale {data.booking.durationMin} min · operatore: {data.operatorName||"—"}</p><p>Data preferita: {fmtDateTime(data.booking.startAt)}</p>{data.booking.alternativeAvailability&&<p className="mt-2"><b>Alternative:</b> {data.booking.alternativeAvailability}</p>}{data.booking.notes&&<p className="mt-2"><b>Note:</b> {data.booking.notes}</p>}</section>
-      </div>
-      <TreatmentDuration key={bookingId} kind="guest" bookingId={bookingId} />
-      <section className="rounded-xl border border-slate-200 p-4 text-sm"><h3 className="font-bold">Presa visione e preferenze</h3><p>Presa visione informativa: {data.booking.privacyAcknowledgedAt?fmtDateTime(data.booking.privacyAcknowledgedAt):"non disponibile"} · versione {data.booking.privacyVersion||"—"} · registrazione {data.booking.privacyProof?"presente":"non disponibile"}</p><p>Marketing facoltativo: {data.booking.marketingConsent?"Sì, selezionato dal cliente":"No"}{data.booking.marketingConsentAt&&` · ${fmtDateTime(data.booking.marketingConsentAt)}`}</p></section>
-       {data.booking.status==="richiesta"||data.booking.status==="in_valutazione"||data.booking.status==="proposta"?<section className="grid gap-3 rounded-xl border border-slate-200 p-4 sm:grid-cols-3"><Field label="Data"><input type="date" className="input min-h-11" value={when.date} onChange={e=>setWhen({...when,date:e.target.value})}/></Field><Field label="Ora"><input type="time" className="input min-h-11" value={when.time} onChange={e=>setWhen({...when,time:e.target.value})}/></Field><Field label="Operatore"><select className="input min-h-11" value={when.operatorId} onChange={e=>setWhen({...when,operatorId:e.target.value})}>{ops?.filter(o=>o.active).map(o=><option key={o.id} value={o.id}>{o.name}</option>)}</select></Field><Field label="Prezzo definitivo (solo se verificato)"><MoneyInput value={finalPriceCents} onChange={setFinalPriceCents}/></Field><Field label="Messaggio per il cliente" className="sm:col-span-3"><textarea className="input min-h-20" maxLength={1000} value={reason} onChange={e=>setReason(e.target.value)} placeholder="Facoltativo"/></Field><div className="sm:col-span-3"><ErrorBox error={err}/><div className="flex flex-wrap gap-2"><button disabled={busy} className="btn-primary" onClick={()=>act("conferma")}>Conferma richiesta</button><button disabled={busy} className="btn-outline" onClick={()=>act("proponi")}>Proponi variazione</button><button disabled={busy} className="btn-danger" onClick={()=>act("rifiuta")}>Rifiuta</button></div><p className="mt-2 text-xs text-slate-500">L’invio del modulo non conferma l’appuntamento. Solo il salone può approvarlo.</p></div></section>:<p className="rounded-xl bg-slate-50 p-3 text-sm">Aggiornamento inviato al recapito indicato dal cliente. Lo slot resta impegnato solo per stati attivi.</p>}
-    </div>}
-  </Modal>;
 }
 
 function Cancellations({ onOpen }: { onOpen: (id: number) => void }) {

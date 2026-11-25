@@ -126,7 +126,9 @@ async function busyIntervals(operatorId: number, day: string, bufferMin: number,
     ),
     excludeId ? ne(appointments.id, excludeId) : sql`true`,
   ));
-  const guestStatuses = blockPending ? ["richiesta", "in_valutazione", "proposta", "confermata"] : ["confermata"];
+  // Il percorso ospite è chiuso: le vecchie richieste non approvate non riservano capacità.
+  // Conservare invece gli impegni già confermati per non consentire doppie prenotazioni.
+  const guestStatuses = ["confermata"];
   const guests = await tx.select({
     status:guestBookings.status,startAt:guestBookings.startAt,endAt:guestBookings.endAt,durationMin:guestBookings.durationMin,
     proposedStartAt:guestBookings.proposedStartAt,proposedOperatorId:guestBookings.proposedOperatorId,
