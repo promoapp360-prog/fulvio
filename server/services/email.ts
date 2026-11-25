@@ -2,10 +2,12 @@ import nodemailer from "nodemailer";
 import { and, asc, eq, inArray, lte, sql, lt, min } from "drizzle-orm";
 import { db, type DbExecutor } from "../db";
 import { appointments, users, emailQueue, emailTemplates } from "../../shared/schema";
-import { BUSINESS, fullAddress } from "../../shared/constants";
+import { BUSINESS } from "../../shared/constants";
 import { DEFAULT_TEMPLATES } from "./templates";
 import { renderTemplate } from "../logic";
 import { nextReminderWindow, obsoleteReminder } from "../reminder-timing";
+import { esc, emailLayout, inlineEmailAssets } from "./email-layout";
+export { esc, p, emailLayout } from "./email-layout";
 
 let transporter: nodemailer.Transporter | null = null;
 const smtpConfigured = () => !!process.env.SMTP_HOST;
@@ -20,24 +22,7 @@ function getTransporter() {
   return transporter;
 }
 
-export const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]!));
-export const p = (text: string) => `<p style="font-size:15px;line-height:22px;margin:0 0 12px">${esc(text)}</p>`;
-const paragraphs = (text: string) => text.split(/\n{2,}/).map((x) => x.trim()).filter(Boolean).map((x) => `<p style="font-size:15px;line-height:22px;margin:0 0 12px">${esc(x).replace(/\n/g, "<br>")}</p>`).join("");
-
-/** Layout email con logo ufficiale e colori del brand. */
-export function emailLayout(title: string, bodyHtml: string, cta?: { label: string; url: string }, footerExtra = "") {
-  const base = process.env.PUBLIC_URL || "";
-  return `<!doctype html><html lang="it"><body style="margin:0;background:#E6F7FF;font-family:'Poppins',Arial,Helvetica,sans-serif;color:#0A2350">
-<table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:24px 12px">
-<table width="100%" cellpadding="0" cellspacing="0" style="width:100%;max-width:600px;background:#fff;border-radius:16px;overflow:hidden">
-<tr><td align="center" style="padding:24px 24px 8px"><img src="${base}/brand/logo.png" alt="Dog's Planet – Pet Grooming" width="200" style="display:block;max-width:200px;height:auto"></td></tr>
-<tr><td style="padding:8px 32px 16px"><h1 style="font-size:22px;color:#0B3D91;margin:12px 0">${esc(title)}</h1>${bodyHtml}
-${cta ? `<p style="text-align:center;margin:28px 0"><a href="${cta.url}" style="background:#00B6C8;color:#fff;text-decoration:none;padding:12px 24px;border-radius:999px;font-weight:bold">${esc(cta.label)}</a></p>` : ""}
-</td></tr>
-<tr><td style="background:#0B3D91;color:#fff;padding:18px 32px;font-size:12px;line-height:18px">
-<strong>${BUSINESS.name}</strong> – Pet Grooming<br>${esc(fullAddress)}<br>Tel/WhatsApp ${BUSINESS.phone} · ${BUSINESS.email}${footerExtra}</td></tr>
-</table></td></tr></table></body></html>`;
-}
+const paragraphs = (text: string) => text.split(/\n{2,}/).map((x) => x.trim()).filter(Boolean).map((x) => `<p style="font-size:15px;line-height:24px;margin:0 0 16px">${esc(x).replace(/\n/g, "<br>")}</p>`).join("");
 
 export async function getTemplate(key: string, executor: DbExecutor = db) {
   const [t] = await executor.select().from(emailTemplates).where(eq(emailTemplates.key, key));
@@ -111,7 +96,7 @@ export async function processQueue() {
           }
         }
         if (!t) { await db.update(emailQueue).set({ status: "simulata", lastError: "SMTP non configurato", attempts: m.attempts + 1 }).where(eq(emailQueue.id, m.id)); continue; }
-        const info = await t.sendMail({ from: process.env.MAIL_FROM || `${BUSINESS.name} <${BUSINESS.email}>`, to: m.toEmail, subject: m.subject, html: m.html });
+        const info = await t.sendMail({ from: process.env.MAIL_FROM || `${BUSINESS.name} <${BUSINESS.email}>`, to: m.toEmail, subject: m.subject, html: m.html, attachments: inlineEmailAssets(m.html) });
         const rejected = (info.rejected || []).length > 0;
         await db.update(emailQueue).set({ status: rejected ? "fallita" : "inviata", sentAt: new Date(), attempts: m.attempts + 1, providerId: String(info.messageId || "").slice(0, 255), lastError: rejected ? "Destinatario rifiutato dal server" : null }).where(eq(emailQueue.id, m.id));
       } catch (e) {

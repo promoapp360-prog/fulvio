@@ -83,7 +83,7 @@ r.get("/campaigns/:id/preview", requirePerm("marketing"), h(async (req, res) => 
   const [c] = await db.select().from(campaigns).where(eq(campaigns.id, id(req.params.id)));
   if (!c) throw new HttpError(404, "Campagna non trovata");
   const list = await audienceUsers(c.audience, c.filters as any);
-  res.json({ recipients: list.length, html: emailLayout(c.subject, c.body.split(/\n{2,}/).map((x) => p(x)).join(""), undefined, c.audience !== "servizio" ? unsubFooter("ANTEPRIMA") : "") });
+  res.json({ recipients: list.length, html: emailLayout(c.subject, c.body.split(/\n{2,}/).map((x) => p(x)).join(""), undefined, c.audience !== "servizio" ? unsubFooter("ANTEPRIMA") : "", true) });
 }));
 
 r.post("/campaigns/:id/send", requirePerm("marketing"), h(async (req, res) => {
