@@ -1,4 +1,4 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect, useRef } from "react";
 import { Route, Switch, useLocation } from "wouter";
 import { PublicLayout } from "@/components/Layout";
 import { ToastProvider, Spinner } from "@/components/ui";
@@ -8,6 +8,7 @@ import AboutPage from "@/pages/public/About";
 import { ServiziPage, ToelettaturaPage, SelfServicePage, PensionePage, FidelityPage, ContattiPage, NotFound } from "@/pages/public/Pages";
 import { LoginPage, RegisterPage, ForgotPage, ResetPage, ForceChangePasswordPage, VerifyEmailPage } from "@/pages/public/Auth";
 import { useMe } from "@/lib/auth";
+import { logoutOneSignal } from "@/lib/onesignal";
 
 // aree riservate caricate a parte: il sito pubblico resta leggero
 const BookingPage = lazy(() => import("@/pages/public/Booking"));
@@ -18,6 +19,14 @@ const AdminArea = lazy(() => import("@/pages/admin/AdminLayout"));
 export default function App() {
   const [loc] = useLocation();
   const { data: me } = useMe();
+  const previousUser = useRef<number | null | undefined>(undefined);
+  useEffect(() => {
+    const nextId = me?.id ?? (me === null ? null : undefined);
+    if (nextId === undefined) return;
+    if (previousUser.current !== undefined && previousUser.current !== nextId) void logoutOneSignal();
+    if (nextId === null) void logoutOneSignal();
+    previousUser.current = nextId;
+  }, [me?.id, me]);
   // password temporanea: nessuna altra schermata finché non viene cambiata
   if (me?.mustChangePassword) return <ToastProvider><PublicLayout><ForceChangePasswordPage /></PublicLayout></ToastProvider>;
   return (

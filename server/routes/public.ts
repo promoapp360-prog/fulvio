@@ -9,6 +9,7 @@ import {
   pages, faqs, services, serviceCategories, serviceVariants, serviceSupplements, servicePricingRules, operators, operatorServices, operatorShifts, products, promotions, dogs, dogCustomFields, cookieChoices,
 } from "../../shared/schema";
 import { publicSettings } from "../services/settings";
+import { getOneSignalBrowserConfig } from "../services/onesignal";
 import { availability, quote } from "../services/availability";
 import { sendEmail, emailLayout, p } from "../services/email";
 import { getSettings } from "../services/settings";
@@ -19,13 +20,24 @@ import { users, productVariants, productCategories } from "../../shared/schema";
 import { recordConsent } from "../services/consents";
 import { guestRequestStatus } from "../services/guest-bookings";
 import { cookieConfiguration } from "../services/cookie-config";
+import type { Request } from "express";
 
 const r = Router();
+function publicRequestOrigin(req: Request) {
+  const origin = req.get("origin");
+  if (origin) { try { return new URL(origin).origin; } catch { /* use trusted proxy host below */ } }
+  const proto = (req.get("x-forwarded-proto") || req.protocol).split(",")[0].trim();
+  const host = (req.get("x-forwarded-host") || req.get("host") || "").split(",")[0].trim();
+  return new URL(`${proto}://${host}`).origin;
+}
 
 // cache HTTP breve per i contenuti pubblici: riduce le query ripetute
 r.use((req, res, next) => { if (req.method === "GET") res.set("Cache-Control", "public, max-age=60"); next(); });
 
 r.get("/settings", h(async (_req, res) => res.json(await publicSettings())));
+r.get("/onesignal/config", h(async (req, res) => {
+  res.set("Cache-Control", "no-store").json(await getOneSignalBrowserConfig(publicRequestOrigin(req)));
+}));
 r.get("/reviews", h(async (_req, res) => {
   res.set("Cache-Control", "no-store").json(await publicReviews());
 }));

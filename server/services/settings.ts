@@ -1,4 +1,5 @@
 import { pushConfiguration } from "./push-config";
+import { ONESIGNAL_DEFAULTS } from "./onesignal-core";
 import { db } from "../db";
 import { settings } from "../../shared/schema";
 import { sql } from "drizzle-orm";
@@ -39,6 +40,7 @@ export const DEFAULT_SETTINGS = {
   },
   staff: { roundingStep: 15, roundingMode: "vicino" as "vicino" | "difetto" | "eccesso", payWeekday: 6 },
   notifications: { reminderHours: 24, recallEnabled: true, recallDefaultDays: null as number | null },
+  onesignal: structuredClone(ONESIGNAL_DEFAULTS),
   cancellation: {
     cancelHours: 24,               // il cliente può annullare da solo fino a N ore prima
     rescheduleHours: 24,           // termine per chiedere uno spostamento
@@ -144,8 +146,9 @@ export async function publicSettings() {
     cancellation: { cancelHours: s.cancellation.cancelHours, rescheduleHours: s.cancellation.rescheduleHours, depositPolicy: s.cancellation.depositPolicy },
     loyaltyRules: { pointValueCents: s.loyalty.pointValueCents, minRedeemPoints: s.loyalty.minRedeemPoints, expiryMode: s.loyalty.expiryMode },
     boarding: s.boarding,
-    pushConfigured: pushConfiguration.configured,
+    pushConfigured: pushConfiguration.configured || (!!process.env.ONESIGNAL_APP_ID && !!process.env.ONESIGNAL_APP_API_KEY && s.onesignal.enabled),
     pushPublicKey: pushConfiguration.publicKey,
+    oneSignalEnabled: !!process.env.ONESIGNAL_APP_ID && !!process.env.ONESIGNAL_APP_API_KEY && s.onesignal.enabled,
     emailConfigured: !!process.env.SMTP_HOST,
     onlinePayments: !!process.env.STRIPE_SECRET_KEY && s.payments.onlineEnabled,
   };

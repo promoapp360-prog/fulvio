@@ -4,6 +4,7 @@ import { appointments, appointmentEvents, appointmentPhotos, dogPhotos, dogs, op
 import { assertSlotFree, operatorSlots, operatorCanDo, quote, compatibleOperators, compatibleOperatorsForServices, SlotError } from "./availability";
 import { getSettings } from "./settings";
 import { notifyUser, notifyStaff, pushUserNotification } from "./notify";
+import { cancelOneSignalAppointmentReminder, scheduleOneSignalReminder } from "./onesignal";
 import { kickQueue } from "./email";
 import { awardForAmount } from "./loyalty";
 import { fmtRome, romeToDate, todayRome, addDays } from "../time";
@@ -325,5 +326,7 @@ export async function applyAction(appointmentId: number, actor: { id: number; ro
     }
     else if (!isCustomer) await notifyUser(c, { title: m.title, body: m.body, url: "/account/appuntamenti", template: m.template, vars });
   }
+  if (updated.status === "confermata") await scheduleOneSignalReminder(a.id);
+  else if (a.status === "confermata") await cancelOneSignalAppointmentReminder(a.id);
   return updated;
 }

@@ -15,6 +15,7 @@ import { DEFAULT_TEMPLATES } from "../../services/templates";
 import { sendTemplate } from "../../services/email";
 import { legalSettingsSchema } from "../../../shared/legal";
 import { reviewSettingsSchema, webUrl } from "../../../shared/reviews";
+import { normalizeOneSignalSettings } from "../../services/onesignal-core";
 
 const r = Router();
 const upload = multer({
@@ -101,7 +102,9 @@ r.put("/settings/:key", h(async (req, res) => {
   const u = req.user!;
   if (u.role !== "admin" && !(u.permissions || []).includes(perm)) throw new HttpError(403, "Permesso negato");
   if (key === "payments" && u.role !== "admin") throw new HttpError(403, "Solo l'amministratore modifica i pagamenti");
+  if (key === "onesignal" && u.role !== "admin") throw new HttpError(403, "Solo l'amministratore modifica OneSignal");
   const body = z.record(z.unknown()).parse(req.body);
+  const previous = key === "onesignal" || key === "notifications" ? await getSettings() : null;
   const allowed = Object.keys((DEFAULT_SETTINGS as any)[key]);
   const clean = Object.fromEntries(Object.entries(body).filter(([k]) => allowed.includes(k)));
   if (key === "reviews") Object.assign(clean, reviewSettingsSchema.partial().parse(clean));
@@ -129,6 +132,27 @@ r.put("/settings/:key", h(async (req, res) => {
     expiryFixedDate: z.string().regex(/^(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/, "formato MM-GG"), expiryDays: z.number().int().min(1).max(3650),
   }).partial().parse(clean));
   if (key === "notifications") Object.assign(clean, z.object({ reminderHours: z.number().int().min(1).max(168), recallEnabled: z.boolean(), recallDefaultDays: z.number().int().min(1).max(365).nullable() }).partial().parse(clean));
+  if (key === "onesignal") {
+    const source = clean as any;
+    if (source.expectedOrigin !== undefined) {
+      const origin = z.string().url().max(250).parse(source.expectedOrigin);
+      if (new URL(origin).origin !== origin || !origin.startsWith("https://")) throw new HttpError(400, "Indica l'origine HTTPS completa del sito.");
+    }
+    if (source.automations !== undefined) {
+      const automationSchema = z.object({ enabled: z.boolean(), title: z.string().trim().min(1).max(160), body: z.string().trim().min(1).max(500) });
+      const automations = z.record(z.string(), automationSchema).parse(source.automations);
+      const allowed = ["requestReceived", "appointmentConfirmed", "paymentRequired", "appointmentChanged", "appointmentCancelled", "reminder", "dogReady", "recall", "marketing"];
+      if (Object.keys(automations).some(key => !allowed.includes(key))) throw new HttpError(400, "Automazione OneSignal non riconosciuta.");
+    }
+    const normalized = normalizeOneSignalSettings(source);
+    if (normalized.quietHoursStart >= normalized.quietHoursEnd) throw new HttpError(400, "La fascia oraria deve terminare dopo l'inizio.");
+    if (normalized.enabled) {
+      const { inspectOneSignalApp } = await import("../../services/onesignal");
+      const app = await inspectOneSignalApp();
+       if (!app.configured || app.webOrigin !== normalized.expectedOrigin || app.safariOrigin !== normalized.expectedOrigin) throw new HttpError(409, "Prima di attivare OneSignal, imposta e verifica il dominio del sito nelle impostazioni Web e Safari OneSignal.");
+    }
+    Object.assign(clean, normalized);
+  }
   if (key === "cancellation") Object.assign(clean, z.object({ cancelHours: z.number().int().min(0).max(720), rescheduleHours: z.number().int().min(0).max(720), depositPolicy: z.string().max(2000), reasons: z.array(z.string().trim().min(1).max(80)).max(30) }).partial().parse(clean));
   if (key === "shop") Object.assign(clean, z.object({
     pickupEnabled: z.boolean(), pickupInfo: z.string().max(1000), deliveryEnabled: z.boolean(),
@@ -138,6 +162,16 @@ r.put("/settings/:key", h(async (req, res) => {
     Object.assign(clean, z.object({ defaultMode: z.enum(["nessuno", "acconto", "saldo", "negozio"]), depositPercent: z.number().int().min(1).max(100), onlineEnabled: z.boolean(), customMethods: z.array(z.string().trim().min(1).max(40)).max(20) }).partial().parse(clean));
   }
   const next = await setSetting(key, clean as any);
+  const previousData: any = previous;
+  const nextData: any = next;
+  const reschedule = key === "onesignal"
+    ? ["enabled", "quietHoursStart", "quietHoursEnd"].some((field) => previousData.onesignal[field] !== nextData.onesignal[field]) ||
+      JSON.stringify(previousData.onesignal.automations.reminder) !== JSON.stringify(nextData.onesignal.automations.reminder)
+    : key === "notifications" && previousData.notifications.reminderHours !== nextData.notifications.reminderHours;
+  if (reschedule) {
+    const { refreshOneSignalSchedules } = await import("../../services/onesignal");
+    await refreshOneSignalSchedules();
+  }
   await audit(req, "settings_update", "settings", key, clean);
   res.json(next);
 }));

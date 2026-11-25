@@ -7,7 +7,7 @@ import { db } from "../db";
 import {
   users, dogs, dogPhotos, appointmentPhotos, dogCustomFields, appointments, services, operators, payments, loyaltyCards, loyaltyTransactions, loyaltyRewards,
   boardingRequests, orders, orderItems, products, notifications, pushSubscriptions, promotions, appointmentEvents, auditLog,
-  guestCustomers, guestBookings, guestBookingEvents,
+  guestCustomers, guestBookings, guestBookingEvents, oneSignalDevices,
 } from "../../shared/schema";
 import { requireAuth, publicUser } from "../auth";
 import { createRequest, applyAction, paidTotal, logEvent, bookingAvailability } from "../services/appointments";
@@ -29,8 +29,16 @@ import { romeToDate, todayRome, fmtRome } from "../time";
 import { pushConfiguration, validPushEndpoint } from "../services/push-config";
 import { storeDogPhoto, deleteStored, readStored } from "../services/storage";
 import { privacyPolicyVersion } from "../services/privacy-policy";
+import { getOneSignalBrowserConfig, oneSignalCredentialsConfigured, disableOneSignalUser } from "../services/onesignal";
 
 const r = Router();
+function publicRequestOrigin(req: Request) {
+  const origin = req.get("origin");
+  if (origin) { try { return new URL(origin).origin; } catch { /* use trusted proxy host below */ } }
+  const proto = (req.get("x-forwarded-proto") || req.protocol).split(",")[0].trim();
+  const host = (req.get("x-forwarded-host") || req.get("host") || "").split(",")[0].trim();
+  return new URL(`${proto}://${host}`).origin;
+}
 r.use(requireAuth);
 r.use(membershipAccountRoutes);
 const requestPhotoUpload=multer({storage:multer.memoryStorage(),limits:{fileSize:2*1024*1024,files:1}});
@@ -472,8 +480,38 @@ r.post("/push/status", h(async (req, res) => {
 r.post("/push/disable", h(async (req, res) => {
   await db.transaction(async (tx) => {
     await tx.delete(pushSubscriptions).where(eq(pushSubscriptions.userId, req.user!.id));
+    await tx.update(oneSignalDevices).set({ active: false, disabledAt: new Date(), updatedAt: new Date() }).where(eq(oneSignalDevices.userId, req.user!.id));
     await tx.update(users).set({ commPush: false, updatedAt: new Date() }).where(eq(users.id, req.user!.id));
     await recordPushConsent(tx, req, false);
+  });
+  await disableOneSignalUser(req.user!.id);
+  res.json({ ok: true });
+}));
+
+r.get("/push/onesignal/status", h(async (req, res) => {
+  const config = await getOneSignalBrowserConfig(publicRequestOrigin(req));
+  const [row] = await db.select({ total: sql<number>`count(*)::int` }).from(oneSignalDevices)
+    .where(and(eq(oneSignalDevices.userId, req.user!.id), eq(oneSignalDevices.active, true)));
+  res.json({ configured: config.configured && config.enabled, preference: req.user!.commPush, subscribed: row.total > 0 });
+}));
+
+r.post("/push/onesignal/subscribe", h(async (req, res) => {
+  const { subscriptionId, endpoint } = z.object({
+    subscriptionId: z.string().uuid(),
+    endpoint: z.string().url().max(1000).optional(),
+  }).parse(req.body);
+  const config = await getOneSignalBrowserConfig();
+  if (!config.configured || !config.enabled || !oneSignalCredentialsConfigured() || publicRequestOrigin(req) !== config.expectedOrigin) throw new HttpError(503, "Notifiche OneSignal non attive su questo dominio. Puoi continuare a usare l'area personale.");
+  await db.transaction(async (tx) => {
+    if (endpoint) await tx.delete(pushSubscriptions).where(and(eq(pushSubscriptions.userId, req.user!.id), eq(pushSubscriptions.endpoint, endpoint)));
+    await tx.insert(oneSignalDevices).values({
+      userId: req.user!.id, subscriptionId, active: true, consentAt: new Date(), disabledAt: null, updatedAt: new Date(),
+    }).onConflictDoUpdate({
+      target: oneSignalDevices.subscriptionId,
+      set: { userId: req.user!.id, active: true, consentAt: new Date(), disabledAt: null, updatedAt: new Date() },
+    });
+    await tx.update(users).set({ commPush: true, updatedAt: new Date() }).where(eq(users.id, req.user!.id));
+    await recordPushConsent(tx, req, true);
   });
   res.json({ ok: true });
 }));

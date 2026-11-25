@@ -10,6 +10,7 @@ import { useMe, useLogout } from "@/lib/auth";
 import { usePublicSettings } from "@/lib/settings";
 import { fmtLong, fmtDate, fmtDay, fmtDateTime, todayISO } from "@/lib/format";
 import PushPreferences from "@/components/PushPreferences";
+import { logoutOneSignal } from "@/lib/onesignal";
 import LoyaltyClaim from "@/components/LoyaltyClaim";
 import { api } from "@/lib/api";
 import { euro, SIZE_LABELS, PAYMENT_METHODS, PAYMENT_KINDS, ORDER_STATUS, BOARDING_STATUS, STATUS_COLORS, LOYALTY_KINDS } from "@shared/constants";
@@ -414,7 +415,7 @@ function Profile() {
         <button className="btn-outline">Aggiorna password</button>
       </form>
       <div className="card"><h2 className="text-xl font-bold">Sicurezza</h2><p className="mt-1 text-sm text-slate-600">Chiudi l'accesso su tutti i dispositivi (ad esempio se hai usato un telefono non tuo).</p>
-        <button className="btn-outline mt-3" onClick={async () => { if (confirm("Uscire da tutti i dispositivi?")) { await post("/api/auth/logout-all"); window.location.href = "/login"; } }}>Esci da tutti i dispositivi</button></div>
+        <button className="btn-outline mt-3" onClick={async () => { if (confirm("Uscire da tutti i dispositivi?")) { await logoutOneSignal(); await post("/api/auth/logout-all"); window.location.href = "/login"; } }}>Esci da tutti i dispositivi</button></div>
       <div className="card"><h2 className="text-xl font-bold">I tuoi dati personali</h2><p className="mt-1 text-sm text-slate-600">Scarica una copia di tutti i dati che conserviamo su di te. Per la cancellazione dell'account scrivi a info@dogsplanet.it.</p><a href="/api/account/export" className="btn-outline mt-3">Scarica i miei dati</a></div>
     </div>
   );

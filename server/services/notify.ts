@@ -3,6 +3,20 @@ import { db, type DbExecutor } from "../db";
 import { notifications, users, type User } from "../../shared/schema";
 import { sendTemplate } from "./email";
 import { pushToUsers } from "./push";
+import { sendOneSignalAutomation } from "./onesignal";
+import type { OneSignalAutomationKey } from "./onesignal-core";
+
+const oneSignalAutomationForTemplate: Record<string, OneSignalAutomationKey> = {
+  richiesta_ricevuta: "requestReceived",
+  appuntamento_confermato: "appointmentConfirmed",
+  appuntamento_pagamento: "paymentRequired",
+  appuntamento_modificato: "appointmentChanged",
+  appuntamento_proposta: "appointmentChanged",
+  appuntamento_annullato: "appointmentCancelled",
+  appuntamento_rifiutato: "appointmentCancelled",
+  appuntamento_completato: "dogReady",
+  richiamo: "recall",
+};
 
 /**
  * Notifica un utente: notifica in-app sempre, email come canale principale (se attiva nelle preferenze), push in aggiunta.
@@ -18,8 +32,11 @@ export async function notifyUser(user: User, msg: { title: string; body: string;
 }
 
 /** In modalità transazionale invocare soltanto dopo il commit. */
-export async function pushUserNotification(user: User, msg: { title: string; body: string; url?: string }) {
-  if (user.commPush) await pushToUsers([user.id], { title: msg.title, body: msg.body, url: msg.url });
+export async function pushUserNotification(user: User, msg: { title: string; body: string; url?: string; template?: string; vars?: Record<string, any>; dedupeKey?: string }) {
+  if (!user.commPush) return;
+  await pushToUsers([user.id], { title: msg.title, body: msg.body, url: msg.url });
+  const automation = msg.template ? oneSignalAutomationForTemplate[msg.template] : undefined;
+  if (automation) await sendOneSignalAutomation(user.id, automation, msg.vars || {}, { url: msg.url, dedupeKey: msg.dedupeKey });
 }
 
 /** Notifica lo staff (admin + utenti con il permesso indicato): in-app e push; email solo agli admin. */

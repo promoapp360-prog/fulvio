@@ -856,6 +856,32 @@ export const pushLog = pgTable("push_log", {
   createdAt: ts("created_at").notNull().defaultNow(),
 });
 
+export const oneSignalDevices = pgTable("onesignal_devices", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  subscriptionId: varchar("subscription_id", { length: 100 }).notNull().unique(),
+  active: boolean("active").notNull().default(true),
+  consentAt: ts("consent_at").notNull().defaultNow(),
+  disabledAt: ts("disabled_at"),
+  createdAt: ts("created_at").notNull().defaultNow(),
+  updatedAt: ts("updated_at").notNull().defaultNow(),
+});
+
+export const oneSignalMessages = pgTable("onesignal_messages", {
+  id: bigserial("id", { mode: "number" }).primaryKey(),
+  providerMessageId: varchar("provider_message_id", { length: 80 }),
+  userId: integer("user_id").references(() => users.id, { onDelete: "set null" }),
+  appointmentId: integer("appointment_id").references(() => appointments.id, { onDelete: "set null" }),
+  automationKey: varchar("automation_key", { length: 40 }).notNull(),
+  title: varchar("title", { length: 160 }).notNull(),
+  body: varchar("body", { length: 500 }).notNull(),
+  status: varchar("status", { length: 20 }).notNull(),
+  scheduledAt: ts("scheduled_at"),
+  error: text("error"),
+  createdAt: ts("created_at").notNull().defaultNow(),
+  updatedAt: ts("updated_at").notNull().defaultNow(),
+});
+
 export type User = typeof users.$inferSelect;
 export type Dog = typeof dogs.$inferSelect;
 export type Service = typeof services.$inferSelect;

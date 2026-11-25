@@ -4,7 +4,8 @@ import { db } from "./db";
 import { payments, appointments, orders, users } from "../shared/schema";
 import { verifyStripeSignature } from "./services/payments";
 import { logEvent, paidTotal } from "./services/appointments";
-import { notifyAppointmentConfirmed } from "./services/appointment-mail";
+import { notifyAppointmentConfirmed, pushAppointmentConfirmed } from "./services/appointment-mail";
+import { scheduleOneSignalReminder } from "./services/onesignal";
 import { kickQueue } from "./services/email";
 import { commitStock } from "./services/shop";
 import { notifyUser, notifyStaff } from "./services/notify";
@@ -33,6 +34,7 @@ r.post("/stripe", express.raw({ type: "application/json", limit: "1mb" }), async
 });
 
 async function handlePaid(sessionId: string, amountTotal: number, meta: Record<string, string>) {
+  let confirmedAppointmentId: number | null = null;
   const result = await db.transaction(async (tx) => {
     // aggiorna solo se ancora "in_attesa": evita il doppio conteggio in caso di webhook ripetuti
     const [p] = await tx.update(payments).set({ status: "pagato", paidAt: new Date(), amountCents: amountTotal })
@@ -46,6 +48,7 @@ async function handlePaid(sessionId: string, amountTotal: number, meta: Record<s
         await tx.update(appointments).set({ status: "confermata", updatedAt: new Date() }).where(eq(appointments.id, a.id));
         await logEvent(tx, a.id, null, "conferma_pagamento", "attesa_pagamento", "confermata");
         await notifyAppointmentConfirmed(a.id, tx);
+        confirmedAppointmentId = a.id;
       }
     }
     if (p.orderId) {
@@ -56,6 +59,8 @@ async function handlePaid(sessionId: string, amountTotal: number, meta: Record<s
   });
   if (!result) return;
   kickQueue();
+  if (confirmedAppointmentId) await pushAppointmentConfirmed(confirmedAppointmentId);
+  if (result.appointmentId) await scheduleOneSignalReminder(result.appointmentId);
   const [u] = result.customerId ? await db.select().from(users).where(eq(users.id, result.customerId)) : [];
   if (u) await notifyUser(u, { title: "Pagamento ricevuto", body: `Abbiamo ricevuto ${(amountTotal / 100).toFixed(2)} €. Grazie!`, url: result.orderId ? "/account/ordini" : "/account/appuntamenti" });
   await notifyStaff("pagamenti", { title: "Pagamento online ricevuto", body: `${(amountTotal / 100).toFixed(2)} € ${result.orderId ? "ordine #" + result.orderId : "appuntamento #" + result.appointmentId}`, url: "/admin/pagamenti" });

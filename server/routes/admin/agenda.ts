@@ -8,6 +8,7 @@ import { applyAction, logEvent, paidTotal } from "../../services/appointments";
 import { assertSlotFree, quote, operatorSlots, availability } from "../../services/availability";
 import { notifyUser } from "../../services/notify";
 import { notifyAppointmentConfirmed } from "../../services/appointment-mail";
+import { cancelOneSignalAppointmentReminder, scheduleOneSignalReminder } from "../../services/onesignal";
 import { audit } from "../../services/audit";
 import { h, HttpError, id, zDay, zTime, zOptStr } from "../../util";
 import { romeToDate, addDays, fmtRome } from "../../time";
@@ -196,6 +197,8 @@ r.patch("/appointments/:id", requirePerm("agenda_edit"), h(async (req, res) => {
     if (c) await notifyUser(c, { title: "Appuntamento modificato", body: `Il tuo appuntamento è stato spostato a ${fmtRome(out.u.startAt)}.`, url: "/account/appuntamenti",
       template: "appuntamento_modificato", vars: { cane: info?.dog, servizio: info?.service, data: fmtRome(out.u.startAt), operatore: info?.op ?? "" } });
   }
+  if (out.u.status === "confermata" && out.timingChanged) await scheduleOneSignalReminder(aid);
+  else if (out.timingChanged && out.a.status === "confermata") await cancelOneSignalAppointmentReminder(aid);
   await audit(req, "appointment_update", "appointment", aid, d);
   res.json(out.u);
 }));
@@ -226,6 +229,7 @@ r.post("/appointments", requirePerm("agenda_edit"), h(async (req, res) => {
   if (d.notify) {
     await notifyAppointmentConfirmed(a.id);
   }
+  await scheduleOneSignalReminder(a.id);
   await audit(req, "appointment_create", "appointment", a.id, d);
   res.status(201).json(a);
 }));

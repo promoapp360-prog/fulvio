@@ -40,10 +40,11 @@ async function main() {
       useDefaults: true,
       directives: {
         "frame-ancestors": isProd ? ["'self'"] : null,
-        "script-src": ["'self'", "'unsafe-inline'", "https://www.googletagmanager.com", "https://connect.facebook.net", ...(isProd ? [] : ["'unsafe-eval'"])],
+        "script-src": ["'self'", "'unsafe-inline'", "https://www.googletagmanager.com", "https://connect.facebook.net", "https://cdn.onesignal.com", ...(isProd ? [] : ["'unsafe-eval'"])],
         "img-src": ["'self'", "data:", "blob:", "https:"],
         "frame-src": ["'self'", "https://www.google.com", "https://maps.google.com", "https://www.youtube.com", "https://www.youtube-nocookie.com", "https://player.vimeo.com"],
-        "connect-src": ["'self'", "https://www.google-analytics.com", "https://*.google-analytics.com", "https://www.facebook.com", ...(isProd ? [] : ["ws:", "wss:"])],
+        "connect-src": ["'self'", "https://www.google-analytics.com", "https://*.google-analytics.com", "https://www.facebook.com", "https://onesignal.com", "https://*.onesignal.com", "https://api.onesignal.com", ...(isProd ? [] : ["ws:", "wss:"])],
+        "worker-src": ["'self'", "blob:"],
         "style-src": ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
         "font-src": ["'self'", "https://fonts.gstatic.com", "data:"],
         "form-action": ["'self'", "https://checkout.stripe.com"],

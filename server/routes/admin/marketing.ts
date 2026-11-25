@@ -8,6 +8,7 @@ import { crud } from "../../crud";
 import { audit } from "../../services/audit";
 import { enqueueEmail, emailLayout, p } from "../../services/email";
 import { pushToUsers } from "../../services/push";
+import { sendOneSignalCampaign } from "../../services/onesignal";
 import { h, HttpError, id, zOptStr, zOptDay } from "../../util";
 import { todayRome } from "../../time";
 
@@ -102,7 +103,11 @@ r.post("/campaigns/:id/send", requirePerm("marketing"), h(async (req, res) => {
     }
   }
   let pushed = 0;
-  if (c.channel !== "email") pushed = await pushToUsers(list.filter((x) => x.commPush).map((x) => x.id), { title: c.subject, body: c.body.slice(0, 140), url: "/" });
+  if (c.channel !== "email") {
+    const targets = list.filter((x) => x.commPush).map((x) => x.id);
+    pushed = await pushToUsers(targets, { title: c.subject, body: c.body.slice(0, 140), url: "/" });
+    pushed += await sendOneSignalCampaign(targets, c.subject, c.body.slice(0, 500), c.id);
+  }
   await db.update(campaigns).set({ sentCount: queued + pushed }).where(eq(campaigns.id, cid));
   await audit(req, "campaign_send", "campaign", cid, { recipients: list.length, queued, pushed });
   res.json({ recipients: list.length, sent: queued + pushed });

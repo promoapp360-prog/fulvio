@@ -4,6 +4,8 @@ import { Upload, Copy, Trash2, Send, Eye, RotateCcw, Users } from "lucide-react"
 import { PageTitle, Spinner, Empty, Field, Check, Tabs, Modal, ErrorBox, Pager, useToast } from "@/components/ui";
 import ResourceManager from "@/components/ResourceManager";
 import LegalChecklist from "@/components/LegalChecklist";
+import OneSignalPanel from "./OneSignalPanel";
+import { useMe } from "@/lib/auth";
 import { api, get, put, del, post } from "@/lib/api";
 import { fmtDateTime, fmtDay } from "@/lib/format";
 import { SIZES, SIZE_LABELS } from "@shared/constants";
@@ -413,10 +415,12 @@ function PushLog() {
 
 export function Communications() {
   const [tab, setTab] = useState("campagne");
+  const { data: me } = useMe();
+  const tabs = [{ value: "campagne", label: "Campagne" }, { value: "template", label: "Email automatiche" }, { value: "promemoria", label: "Promemoria e richiami" }, { value: "log", label: "Registro email" }, { value: "push", label: "Registro push" }, ...(me?.role === "admin" ? [{ value: "onesignal", label: "OneSignal" }] : [])];
   return (
     <div>
       <PageTitle title="Comunicazioni" subtitle="Email automatiche, campagne, promemoria, richiami periodici e notifiche push" />
-      <Tabs value={tab} onChange={setTab} items={[{ value: "campagne", label: "Campagne" }, { value: "template", label: "Email automatiche" }, { value: "promemoria", label: "Promemoria e richiami" }, { value: "log", label: "Registro email" }, { value: "push", label: "Registro push" }]} />
+      <Tabs value={tab} onChange={setTab} items={tabs} />
       {tab === "campagne" && <Campaigns />}
       {tab === "template" && <Templates />}
       {tab === "promemoria" && <SettingsForm section="notifications" title="Promemoria e richiami periodici" intro="Il promemoria è previsto 24 ore prima per gli appuntamenti confermati con sufficiente anticipo. Invii e ritentativi solo dalle 08:00 alle 20:00, ora di Roma; fuori fascia si anticipa entro le 20:00. Le conferme sono immediate. Con Autoscale la puntualità richiede un'esecuzione pianificata o un server sempre attivo. Il richiamo periodico rispetta la frequenza del cane e le preferenze: non crea prenotazioni." fields={[
@@ -425,6 +429,7 @@ export function Communications() {
       ]} />}
       {tab === "log" && <EmailLog />}
       {tab === "push" && <PushLog />}
+      {tab === "onesignal" && <OneSignalPanel />}
     </div>
   );
 }

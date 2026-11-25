@@ -10,6 +10,7 @@ import content from "./content";
 import marketing from "./marketing";
 import stats from "./stats";
 import system from "./system";
+import onesignal from "./onesignal";
 
 const r = Router();
 r.use((req, res, next) => {
@@ -18,5 +19,5 @@ r.use((req, res, next) => {
   res.set("Cache-Control", "no-store");
   next();
 });
-for (const m of [agenda, crm, catalog, staff, money, shop, content, marketing, stats, system]) r.use(m);
+for (const m of [agenda, crm, catalog, staff, money, shop, content, marketing, stats, system, onesignal]) r.use(m);
 export default r;

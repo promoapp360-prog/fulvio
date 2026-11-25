@@ -8,6 +8,7 @@ import { expirePoints } from "./services/loyalty";
 import { startEmailQueue, kickQueue } from "./services/email";
 import { dateToRome, fmtRome } from "./time";
 import { nextReminderWindow, nextReminderCheckAt, reminderDueAt, reminderKey, REMINDER_HOURS } from "./reminder-timing";
+import { scheduleUpcomingOneSignalReminders } from "./services/onesignal";
 
 let running = false;
 
@@ -81,6 +82,7 @@ async function tick() {
   try {
     await sendRecalls();
     await expirePoints();
+    await scheduleUpcomingOneSignalReminders();
   } catch (e) {
     console.error("[jobs]", (e as Error).message);
   } finally { running = false; }

@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { get, post } from "./api";
+import { logoutOneSignal } from "./onesignal";
 
 export type Me = {
   id: number; email: string; username?: string | null; role: "admin" | "manager" | "operator" | "customer"; permissions: string[]; mustChangePassword?: boolean; emailVerifiedAt?: string | null;
@@ -21,5 +22,5 @@ export function can(me: Me, ...perms: string[]) {
 
 export function useLogout() {
   const qc = useQueryClient();
-  return async () => { await post("/api/auth/logout"); qc.clear(); window.location.href = "/"; };
+  return async () => { await logoutOneSignal(); await post("/api/auth/logout"); qc.clear(); window.location.href = "/"; };
 }

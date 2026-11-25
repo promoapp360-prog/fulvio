@@ -6,7 +6,8 @@ import { useMe } from "@/lib/auth";
 import { usePublicSettings } from "@/lib/settings";
 import { deviceInfo } from "@/lib/pwa";
 import { disablePush, enablePush, pushStatus } from "@/lib/push";
-import { post } from "@/lib/api";
+import { get, post } from "@/lib/api";
+import { disableOneSignal, enableOneSignal, oneSignalStatus } from "@/lib/onesignal";
 
 export default function PushPreferences({ compact = false, afterBooking = false }: { compact?: boolean; afterBooking?: boolean }) {
   const { data: me } = useMe();
@@ -17,8 +18,14 @@ export default function PushPreferences({ compact = false, afterBooking = false 
   const [dismissed, setDismissed] = useState(false);
   const [permission, setPermission] = useState(() => "Notification" in window ? Notification.permission : "default");
   const info = deviceInfo();
+  const { data: browserOneSignal } = useQuery<any>({
+    queryKey: ["onesignal-browser-config"], queryFn: () => get("/api/public/onesignal/config"),
+    enabled: !!me && info.push, staleTime: 60_000, retry: false,
+  });
+  const oneSignalEnabled = !!browserOneSignal?.enabled;
   const { data: status, refetch, isLoading, isError } = useQuery({
-    queryKey: ["push-device", me?.id], queryFn: pushStatus, enabled: !!me && info.push,
+    queryKey: ["push-device", me?.id, oneSignalEnabled ? "onesignal" : "vapid"],
+    queryFn: () => oneSignalEnabled ? oneSignalStatus(me!.id) : pushStatus(), enabled: !!me && info.push,
     refetchOnWindowFocus: true, staleTime: 0, retry: false,
   });
   useEffect(() => {
@@ -27,7 +34,7 @@ export default function PushPreferences({ compact = false, afterBooking = false 
     return () => window.removeEventListener("focus", refresh);
   }, []);
   const active = !!status?.configured && !!status.preference && !!status.subscribed && permission === "granted";
-  const configured = !!settings?.pushConfigured;
+  const configured = !!settings?.pushConfigured && (!!settings?.pushPublicKey || oneSignalEnabled);
   const eligible = afterBooking && !!me?.consentMarketing && !me?.pushOfferedAt && configured && info.push && permission === "default";
   const { data: invitation } = useQuery<{ offer: boolean }>({
     queryKey: ["push-first-booking-offer", me?.id], queryFn: () => post("/api/account/push/offer"),
@@ -36,7 +43,10 @@ export default function PushPreferences({ compact = false, afterBooking = false 
   const change = async (on: boolean) => {
     setBusy(true); setError(""); setMessage("");
     try {
-      if (on) await enablePush(settings?.pushPublicKey || null);
+      if (on) {
+        if (oneSignalEnabled) await enableOneSignal(me!.id);
+        else await enablePush(settings?.pushPublicKey || null);
+      } else if (oneSignalEnabled) await disableOneSignal();
       else await disablePush(!!status?.subscribed);
       setPermission("Notification" in window ? Notification.permission : "default");
       setConsent(false);

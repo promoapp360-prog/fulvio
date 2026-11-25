@@ -10,7 +10,8 @@ import { ensureCard, adjust, redeem, reverseFor, extendExpiry, upcomingExpiries 
 import { sendXlsx, sendPdf } from "../../services/exporter";
 import { services as servicesT, dogs as dogsT } from "../../../shared/schema";
 import { paidTotal, logEvent } from "../../services/appointments";
-import { notifyAppointmentConfirmed } from "../../services/appointment-mail";
+import { notifyAppointmentConfirmed, pushAppointmentConfirmed } from "../../services/appointment-mail";
+import { scheduleOneSignalReminder } from "../../services/onesignal";
 import { kickQueue } from "../../services/email";
 import { getSettings } from "../../services/settings";
 import { h, HttpError, id, paging, zDay, zOptStr, toCsv } from "../../util";
@@ -63,6 +64,7 @@ const manualPayment = z.object({
 /** Registrazione incasso in negozio. Previene doppioni identici registrati a pochi secondi di distanza. */
 r.post("/payments", requirePerm("pagamenti"), h(async (req, res) => {
   const d = manualPayment.parse(req.body);
+  let confirmedAppointmentId: number | null = null;
   const p = await db.transaction(async (tx) => {
     let customerId = d.customerId ?? null;
     if (d.appointmentId) {
@@ -103,12 +105,15 @@ r.post("/payments", requirePerm("pagamenti"), h(async (req, res) => {
         await tx.update(appointments).set({ status: "confermata", updatedAt: new Date() }).where(eq(appointments.id, a.id));
         await logEvent(tx, a.id, req.user!.id, "conferma_pagamento", "attesa_pagamento", "confermata");
         await notifyAppointmentConfirmed(a.id, tx);
+        confirmedAppointmentId = a.id;
       }
     }
     return row;
   });
   await audit(req, "create", "payment", p.id, d);
   kickQueue();
+  if (confirmedAppointmentId) await pushAppointmentConfirmed(confirmedAppointmentId);
+  if (p.appointmentId) await scheduleOneSignalReminder(p.appointmentId);
   res.status(201).json(p);
 }));
 
