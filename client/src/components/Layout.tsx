@@ -26,7 +26,7 @@ export function PublicLayout({ children }: { children: React.ReactNode }) {
   const { data: me } = useMe();
   const { data: s } = usePublicSettings();
   const B = useBusiness();
-  useEffect(() => { setOpen(false); window.scrollTo(0, 0); }, [loc]);
+  useEffect(() => { setOpen(false); }, [loc]);
   useEffect(() => {
     if (!open) return;
     const close = (e: KeyboardEvent) => { if (e.key === "Escape") { setOpen(false); menuButton.current?.focus(); } };

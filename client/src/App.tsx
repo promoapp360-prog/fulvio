@@ -21,6 +21,14 @@ export default function App() {
   const { data: me } = useMe();
   const previousUser = useRef<number | null | undefined>(undefined);
   useEffect(() => {
+    const previousScrollRestoration = window.history.scrollRestoration;
+    window.history.scrollRestoration = "manual";
+    return () => { window.history.scrollRestoration = previousScrollRestoration; };
+  }, []);
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: "instant" });
+  }, [loc]);
+  useEffect(() => {
     const nextId = me?.id ?? (me === null ? null : undefined);
     if (nextId === undefined) return;
     if (previousUser.current !== undefined && previousUser.current !== nextId) void logoutOneSignal();
