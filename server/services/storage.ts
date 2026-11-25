@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import sharp from "sharp";
+import { HttpError } from "../util";
 
 const LOCAL_DIR = path.resolve(process.cwd(), "uploads");
 let objectClient: any = null;
@@ -48,11 +49,11 @@ export async function storeUpload(buffer: Buffer, mime: string, folder = "media"
 
 /** Foto cane solo JPEG/PNG/WebP, ruotata secondo EXIF, WebP e <=1 MB. */
 export async function storeDogPhoto(buffer: Buffer, mime: string): Promise<StoredFile> {
-  if (!["image/jpeg", "image/png", "image/webp"].includes(mime)) throw new Error("Carica una foto JPG, PNG o WebP.");
-  if (!await client()) throw new Error("Lo spazio privato per le foto dei cani non è configurato.");
+  if (!["image/jpeg", "image/png", "image/webp"].includes(mime)) throw new HttpError(400, "Carica una foto JPG, PNG o WebP.");
+  if (!await client()) throw new HttpError(503, "Lo spazio privato per le foto dei cani non è configurato.");
   const source = sharp(buffer, { failOn: "error", limitInputPixels: 24_000_000 });
-  const meta = await source.metadata();
-  if (!["jpeg", "png", "webp"].includes(meta.format || "") || !meta.width || !meta.height) throw new Error("Il file non è una foto valida.");
+  const meta = await source.metadata().catch(() => { throw new HttpError(400, "Il file non è una foto valida."); });
+  if (!["jpeg", "png", "webp"].includes(meta.format || "") || !meta.width || !meta.height) throw new HttpError(400, "Il file non è una foto valida.");
   let output: Buffer | null = null, width = 0, height = 0;
   for (const maxWidth of [1600, 1280, 960]) {
     const pipeline = sharp(buffer, { failOn: "error", limitInputPixels: 24_000_000 })

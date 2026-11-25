@@ -57,7 +57,10 @@ export default function AppointmentDetail({ id, onClose }: { id: number | null; 
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <p className="text-lg font-bold text-brand-navy">{fmtLong(a.startAt)} · {a.durationMin} min</p>
-              <p className="text-sm text-slate-600">Operatore: <b>{a.operatorName || "—"}</b></p>
+              <p className="text-sm text-slate-600">Operatore: <b>{a.operatorName || "Da assegnare alla conferma"}</b></p>
+              {(a.coatKnotsToday || a.coatSheddingToday) && <div className="mt-2 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
+                <b>{a.durationNeedsReview ? "Durata da verificare" : "Informazioni del giorno"}</b>: {a.coatKnotsToday ? "nodi presenti" : "senza nodi"}; {a.coatSheddingToday ? "in muta" : "non in muta"}. La durata può essere aggiornata prima della conferma.
+              </div>}
               <p className="text-sm text-slate-600">Cliente: <Link href={`/admin/clienti/${a.customerId}`} className="font-bold text-brand-blue underline">{a.customerName}</Link>
                 {a.customerPhone && <a href={`tel:${a.customerPhone}`} className="ml-2 inline-flex items-center gap-1 text-brand-blue"><Phone size={12} />{a.customerPhone}</a>}</p>
             </div>
@@ -68,8 +71,6 @@ export default function AppointmentDetail({ id, onClose }: { id: number | null; 
             <div className="rounded-2xl bg-slate-50 p-3 text-sm">
               <p><b>{a.dog.name}</b> · {a.dog.breed || "razza n.d."} · taglia {SIZE_LABELS[a.dog.size]?.toLowerCase()}{a.dog.weightKg ? ` · ${a.dog.weightKg} kg` : ""}</p>
               <div className="mt-1 flex flex-wrap gap-1">
-                {a.dog.coatKnots && <span className="badge bg-amber-100 text-amber-800">Nodi</span>}
-                {a.dog.coatShedding && <span className="badge bg-amber-100 text-amber-800">Muta</span>}
                 {a.dog.aggressive && <span className="badge bg-red-100 text-red-700"><AlertTriangle size={12} className="mr-1" />Attenzione: {a.dog.aggressiveNotes || "comportamento aggressivo"}</span>}
               </div>
               {[a.dog.jointIssues && `Articolazioni: ${a.dog.jointIssues}`, a.dog.dermatitis && `Dermatiti: ${a.dog.dermatitis}`, a.dog.sensitivities && `Sensibilità: ${a.dog.sensitivities}`, a.dog.coatNotes && `Mantello: ${a.dog.coatNotes}`].filter(Boolean).map((t: any) => <p key={t} className="text-slate-600">{t}</p>)}

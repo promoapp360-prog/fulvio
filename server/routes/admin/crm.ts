@@ -52,6 +52,13 @@ r.get("/guest-customers/:id",requirePerm("clienti"),h(async(req,res)=>{
   res.json({customer,dogs:ds.map(({photoKey:_privatePhotoKey,...dog})=>dog),requests:requests.map(x=>x.booking).map((b,i)=>({...b,serviceName:b.servicePriceSnapshot?.map((s:any)=>s.name).filter(Boolean).join(", ")||requests[i].serviceName,operatorName:requests[i].operatorName}))});
 }));
 
+r.get("/dogs/:id/photo", requirePerm("clienti", "richieste"), h(async (req, res) => {
+  const [photo] = await db.select({ storageKey: dogPhotos.storageKey }).from(dogPhotos).where(eq(dogPhotos.dogId, id(req.params.id)));
+  const data = photo ? await readStored(photo.storageKey) : null;
+  if (!data) throw new HttpError(404, "Foto non disponibile.");
+  res.set({ "Content-Type": "image/webp", "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" }).send(data);
+}));
+
 r.get("/guest-dogs/:id/photo",requirePerm("clienti","richieste"),h(async(req,res)=>{
   const [photo]=await db.select({storageKey:dogPhotos.storageKey}).from(dogPhotos).where(eq(dogPhotos.guestDogId,id(req.params.id)));
   const data=photo?await readStored(photo.storageKey):null;

@@ -22,8 +22,8 @@ Progetto PromoApp: sito pubblico + PWA + area clienti + gestionale completo per 
 - La mascotte si chiama **Poppy** in tutta l'app. Non cambiarne muso, pelliccia o identità e non inventare altri cani o loghi.
 - Conservare il logo ufficiale blu/turchese e la foto originale. I derivati puliti delle cinque illustrazioni rimuovono solo frammenti esterni della brand board; gli originali non vanno sovrascritti.
 - Nome pubblico dello shop: **LaPappadiPoppy**, seguito da **Coming Soon** finché gli acquisti sono disabilitati. Conservare il backend e-commerce e la rotta `/pet-shop`; non abilitare gli acquisti senza richiesta.
-- CTA esatta: **Richiedi la prenotazione on Line**, con **on Line** turchese e leggibile sullo sfondo.
-- Il restyling autorizzato riguarda homepage, header e presentazione pubblica correlata: non riscrivere gestionale, autenticazione o dati.
+- CTA esatta: **Richiedi la prenotazione online**, con **online** turchese e leggibile sullo sfondo.
+- Non riscrivere gestionale o autenticazione. Le successive fasi funzionali approvate dall'utente autorizzano solo gli adeguamenti del percorso richiesto, preservando gli altri dati e le altre funzionalità.
 - Prima di consegnare modifiche grafiche, scorrere tutta la homepage su smartphone, tablet e desktop: controllare viso di Poppy, bordi residui, proporzioni, overflow, spazi vuoti, menu e barra dei contatti. Non basta verificare il primo schermo.
 - Integrare logo e illustrazioni senza fondi o cornici bianche incorporati. Per Poppy modificare solo lo sfondo/alfa e non ricostruire parti mancanti del cane.
 - Installazione PWA: su iPhone mostrare istruzioni reali, non falsi pulsanti; rispettare rinvio e installazione già confermata. Richiedere permessi push solo dopo consenso e click espliciti, mai al caricamento.

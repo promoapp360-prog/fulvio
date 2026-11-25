@@ -6,13 +6,15 @@ import { useMe } from "@/lib/auth";
 import { usePublicSettings } from "@/lib/settings";
 import { deviceInfo } from "@/lib/pwa";
 import { disablePush, enablePush, pushStatus } from "@/lib/push";
+import { post } from "@/lib/api";
 
-export default function PushPreferences({ compact = false }: { compact?: boolean }) {
+export default function PushPreferences({ compact = false, afterBooking = false }: { compact?: boolean; afterBooking?: boolean }) {
   const { data: me } = useMe();
   const { data: settings } = usePublicSettings();
   const qc = useQueryClient(), consentId = useId();
   const [consent, setConsent] = useState(false), [busy, setBusy] = useState(false);
   const [message, setMessage] = useState(""), [error, setError] = useState("");
+  const [dismissed, setDismissed] = useState(false);
   const [permission, setPermission] = useState(() => "Notification" in window ? Notification.permission : "default");
   const info = deviceInfo();
   const { data: status, refetch, isLoading, isError } = useQuery({
@@ -26,6 +28,11 @@ export default function PushPreferences({ compact = false }: { compact?: boolean
   }, []);
   const active = !!status?.configured && !!status.preference && !!status.subscribed && permission === "granted";
   const configured = !!settings?.pushConfigured;
+  const eligible = afterBooking && !!me?.consentMarketing && !me?.pushOfferedAt && configured && info.push && permission === "default";
+  const { data: invitation } = useQuery<{ offer: boolean }>({
+    queryKey: ["push-first-booking-offer", me?.id], queryFn: () => post("/api/account/push/offer"),
+    enabled: eligible, staleTime: Infinity, retry: false, refetchOnWindowFocus: false,
+  });
   const change = async (on: boolean) => {
     setBusy(true); setError(""); setMessage("");
     try {
@@ -38,6 +45,7 @@ export default function PushPreferences({ compact = false }: { compact?: boolean
     } catch (e: any) { setError(e.message || "Operazione non riuscita. Riprova."); }
     finally { setPermission("Notification" in window ? Notification.permission : "default"); setBusy(false); }
   };
+  if (afterBooking && (!invitation?.offer || dismissed)) return null;
   return (
     <section data-push-preferences className={`rounded-2xl border border-sky-200 bg-[#f3fbff] p-4 sm:p-5 ${compact ? "md:col-span-2" : ""}`} aria-labelledby={consentId + "-title"}>
       <div className="flex items-start gap-3"><Bell size={23} className="mt-0.5 shrink-0 text-brand-turquoise" aria-hidden="true" /><div className="min-w-0">
@@ -51,7 +59,8 @@ export default function PushPreferences({ compact = false }: { compact?: boolean
             : !info.push ? <p className="text-sm leading-relaxed text-slate-600">Questo browser o contesto non supporta le push. Puoi comunque leggere tutte le comunicazioni nell’area personale.</p>
             : !configured ? <p className="text-sm leading-relaxed text-slate-600">Le notifiche push non sono ancora disponibili: il salone deve completarne la configurazione. Non ti verrà richiesto alcun permesso.</p>
             : permission === "denied" ? <p className="text-sm leading-relaxed text-slate-600">Le notifiche sono bloccate nelle impostazioni del browser. Puoi consentirle lì e tornare in questa pagina; non apriremo altre richieste.</p>
-            : <><label htmlFor={consentId} className="flex min-h-11 cursor-pointer items-start gap-3 text-sm leading-relaxed text-slate-700"><input id={consentId} type="checkbox" className="mt-1 h-5 w-5 shrink-0 accent-[#0b3d91]" checked={consent} onChange={e => setConsent(e.target.checked)} />Acconsento alle notifiche per conferme e promemoria di appuntamento.</label>
+            : !afterBooking && permission === "default" ? <p className="text-sm leading-relaxed text-slate-600">Non apriamo richieste di permesso quando entri nell’area personale. L’invito viene presentato una sola volta dopo la prima richiesta, se hai scelto di ricevere comunicazioni ed il dispositivo è compatibile.</p>
+            : <><label htmlFor={consentId} className="flex min-h-11 cursor-pointer items-start gap-3 text-sm leading-relaxed text-slate-700"><input id={consentId} type="checkbox" className="mt-1 h-5 w-5 shrink-0 accent-[#0b3d91]" checked={consent} onChange={e => setConsent(e.target.checked)} />{permission === "granted" ? "Riattiva le notifiche su questo dispositivo già autorizzato." : "Acconsento alle notifiche per conferme e promemoria di appuntamento."}</label>
               <button type="button" className="btn-navy mt-3 min-h-11" disabled={!consent || busy || isLoading || isError} onClick={() => change(true)}>{busy ? "Registrazione…" : "Consenti notifiche su questo dispositivo"}</button></>}
         </div>
       )}
@@ -59,6 +68,7 @@ export default function PushPreferences({ compact = false }: { compact?: boolean
       {(active || me?.commPush) && <button type="button" className="btn-outline mt-4 min-h-11 text-xs" disabled={busy} onClick={() => change(false)}>Disattiva su tutti i miei dispositivi</button>}
       {message && <p role="status" className="mt-3 text-sm leading-relaxed text-brand-navy">{message}</p>}
       {error && <p role="alert" className="mt-3 text-sm leading-relaxed text-red-700">{error}</p>}
+      {afterBooking && <button type="button" className="btn-ghost mt-3 min-h-11" onClick={() => setDismissed(true)}>Non ora, non riproporre</button>}
       <Link href="/account/notifiche" className="mt-3 inline-flex min-h-11 items-center text-xs font-semibold text-brand-navy underline">Leggi le comunicazioni nell’area personale</Link>
     </section>
   );

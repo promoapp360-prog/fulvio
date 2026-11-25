@@ -20,17 +20,21 @@ export default function InstallPrompt() {
   useEffect(() => {
     const offer = (e: Event) => { e.preventDefault(); setEvent(e as InstallEvent); };
     const installed = () => { write("dp-installed", "1"); setHidden(true); setEvent(null); };
-    const started = Date.now();
-    const reveal = () => { if ((Date.now() - started >= 12000 || window.scrollY > 500) && read("dp-cookie-consent")) setReady(true); };
-    const timeout = setTimeout(reveal, 12000);
-    const scroll = () => { if (window.scrollY > 500) reveal(); };
+    const reveal = () => {
+      let eligible = false;
+      try { eligible = sessionStorage.getItem("dp-install-eligible") === "1"; } catch { /* nessun invito automatico */ }
+      setReady(eligible && !!read("dp-cookie-consent") && !document.querySelector("[data-cookie-banner]"));
+    };
+    const cookieVisibility = () => { requestAnimationFrame(reveal); };
     window.addEventListener("beforeinstallprompt", offer);
     window.addEventListener("appinstalled", installed);
-    window.addEventListener("scroll", scroll, { passive: true });
+    window.addEventListener("dp:install-eligible", reveal);
+    window.addEventListener("dp:cookie-visibility", cookieVisibility);
     window.addEventListener("dp:cookie-consent", reveal);
+    reveal();
     return () => {
-      clearTimeout(timeout); window.removeEventListener("beforeinstallprompt", offer); window.removeEventListener("appinstalled", installed);
-      window.removeEventListener("scroll", scroll); window.removeEventListener("dp:cookie-consent", reveal);
+      window.removeEventListener("beforeinstallprompt", offer); window.removeEventListener("appinstalled", installed);
+      window.removeEventListener("dp:install-eligible", reveal); window.removeEventListener("dp:cookie-visibility", cookieVisibility); window.removeEventListener("dp:cookie-consent", reveal);
     };
   }, []);
   if (hidden || info.standalone || !ready || !info.secure || (!event && !info.ios && !info.android)) return null;

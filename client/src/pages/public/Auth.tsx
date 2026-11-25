@@ -4,16 +4,27 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Logo } from "@/components/brand";
 import { Field, Check, ErrorBox, useToast } from "@/components/ui";
 import { post } from "@/lib/api";
+import { api } from "@/lib/api";
+import { Eye, EyeOff } from "lucide-react";
+import CustomerDogFields, { DogPhotoInput, newCustomerDog } from "@/components/CustomerDogFields";
 
 function nextUrl(fallback: string) {
   const n = new URLSearchParams(window.location.search).get("next");
-  return n && n.startsWith("/") && !n.startsWith("//") ? n : fallback;
+  return n && /^\/(?![\/\\])/.test(n) ? n : fallback;
 }
 
-function AuthCard({ title, children }: { title: string; children: React.ReactNode }) {
+function PasswordInput({ value, onChange, registration = false }: { value: string; onChange: (value: string) => void; registration?: boolean }) {
+  const [visible, setVisible] = useState(false);
+  return <div className="relative">
+    <input type={visible ? "text" : "password"} autoComplete={registration ? "new-password" : "current-password"} required minLength={registration ? 8 : undefined} maxLength={128} className="input min-h-12 pr-14" value={value} onChange={e => onChange(e.target.value)} />
+    <button type="button" className="absolute right-0 top-0 grid h-12 w-12 place-items-center text-brand-navy" aria-label={visible ? "Nascondi password" : "Mostra password"} aria-pressed={visible} onClick={() => setVisible(!visible)}>{visible ? <EyeOff size={20} /> : <Eye size={20} />}</button>
+  </div>;
+}
+
+function AuthCard({ title, children, wide = false }: { title: string; children: React.ReactNode; wide?: boolean }) {
   return (
     <div className="bg-gradient-to-b from-brand-sky to-white py-12">
-      <div className="mx-auto w-full max-w-md px-4">
+      <div className={`mx-auto w-full px-4 ${wide ? "max-w-3xl" : "max-w-md"}`}>
         <div className="card">
           <div className="mb-4 flex justify-center"><Logo className="h-20" /></div>
           <h1 className="mb-5 text-center text-2xl font-extrabold">{title}</h1>
@@ -34,6 +45,7 @@ export function LoginPage() {
     e.preventDefault(); setBusy(true); setErr(null);
     try {
       const u = await post("/api/auth/login", f);
+      qc.clear();
       qc.setQueryData(["me"], u);
       if (u.mustChangePassword) return nav("/cambia-password");
       nav(nextUrl(u.role === "customer" ? "/account" : "/admin"));
@@ -43,7 +55,7 @@ export function LoginPage() {
     <AuthCard title="Accedi">
       <form onSubmit={submit} className="space-y-3">
         <Field label="Email o username"><input autoComplete="username" autoCapitalize="none" className="input" required value={f.login} onChange={(e) => setF({ ...f, login: e.target.value })} /></Field>
-        <Field label="Password"><input type="password" autoComplete="current-password" className="input" required value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} /></Field>
+        <Field label="Password"><PasswordInput value={f.password} onChange={password => setF({ ...f, password })} /></Field>
         <ErrorBox error={err} />
         <button className="btn-primary w-full" disabled={busy}>Accedi</button>
       </form>
@@ -59,45 +71,54 @@ export function RegisterPage() {
   const qc = useQueryClient();
   const [, nav] = useLocation();
   const toast = useToast();
-  const [f, setF] = useState({ firstName: "", lastName: "", email: "", phone: "", password: "", address: "", city: "", province: "", cap: "", birthDate: "", consentPrivacy: false, consentMarketing: false });
+  const [f, setF] = useState({ firstName: "", lastName: "", email: "", phone: "", password: "", city: "", province: "", cap: "", birthDate: "", consentPrivacy: false, consentMarketing: false });
+  const [dog, setDog] = useState<any>(newCustomerDog);
+  const [photo, setPhoto] = useState<File | null>(null);
   const [err, setErr] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement>) => setF({ ...f, [k]: e.target.value });
   const submit = async (e: React.FormEvent) => {
     e.preventDefault(); setBusy(true); setErr(null);
     try {
-      const u = await post("/api/auth/register", { ...f, birthDate: f.birthDate || null });
+      if (!photo) throw new Error("Carica la foto del cane per completare la scheda.");
+      const form = new FormData(); form.append("payload", JSON.stringify({ ...f, dog })); form.append("photo", photo);
+      const u = await api("/api/auth/register", { method: "POST", form });
+      qc.clear();
       qc.setQueryData(["me"], u);
-      toast("Benvenuto in Dog's Planet! Ora registra il tuo cane.");
-      nav(nextUrl("/account/cani?nuovo=1"));
+      try { sessionStorage.setItem("dp-install-eligible", "1"); } catch { /* memoria temporanea non disponibile */ }
+      window.dispatchEvent(new Event("dp:install-eligible"));
+      toast("Benvenuto in Dog's Planet! Account e scheda cane creati.");
+      nav(nextUrl("/account"));
     } catch (x) { setErr(x); } finally { setBusy(false); }
   };
   return (
-    <AuthCard title="Crea il tuo account">
-      <form onSubmit={submit} className="space-y-3">
+    <AuthCard title="Diventa cliente" wide>
+      <p className="mb-5 text-sm leading-relaxed text-slate-600">Compila i tuoi dati e la scheda del tuo animale una sola volta. I campi indicati con * sono obbligatori.</p>
+      <form onSubmit={submit} className="space-y-5">
+        <h2 className="text-lg font-bold">I tuoi dati</h2>
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="Nome *"><input className="input" required autoComplete="given-name" value={f.firstName} onChange={set("firstName")} /></Field>
           <Field label="Cognome *"><input className="input" required autoComplete="family-name" value={f.lastName} onChange={set("lastName")} /></Field>
         </div>
         <Field label="Email *"><input type="email" className="input" required autoComplete="email" value={f.email} onChange={set("email")} /></Field>
-        <Field label="Telefono *"><input type="tel" className="input" required autoComplete="tel" value={f.phone} onChange={set("phone")} /></Field>
-        <Field label="Password *" hint="Almeno 8 caratteri"><input type="password" className="input" required minLength={8} autoComplete="new-password" value={f.password} onChange={set("password")} /></Field>
-        <details className="rounded-xl bg-slate-50 p-3 text-sm">
-          <summary className="cursor-pointer font-bold text-brand-navy">Dati facoltativi (indirizzo, compleanno)</summary>
-          <div className="mt-3 space-y-3">
-            <Field label="Indirizzo"><input className="input" autoComplete="street-address" value={f.address} onChange={set("address")} /></Field>
-            <div className="grid grid-cols-3 gap-2">
-              <Field label="Comune" className="col-span-3 sm:col-span-1"><input className="input" value={f.city} onChange={set("city")} /></Field>
-              <Field label="Prov."><input className="input" maxLength={4} value={f.province} onChange={set("province")} /></Field>
-              <Field label="CAP"><input className="input" maxLength={10} value={f.cap} onChange={set("cap")} /></Field>
-            </div>
-            <Field label="Data di nascita" hint="Per ricevere le promozioni di compleanno"><input type="date" className="input" value={f.birthDate} onChange={set("birthDate")} /></Field>
-          </div>
-        </details>
-        <Check checked={f.consentPrivacy} onChange={(v) => setF({ ...f, consentPrivacy: v })} label={<>Ho letto e accetto la <Link href="/privacy-policy" className="underline">Privacy Policy</Link> e le <Link href="/condizioni-del-servizio" className="underline">Condizioni del servizio</Link> *</>} />
-        <Check checked={f.consentMarketing} onChange={(v) => setF({ ...f, consentMarketing: v })} label="Desidero ricevere promozioni e novità da Dog's Planet (facoltativo)" />
+        <Field label="Telefono / WhatsApp *"><input type="tel" className="input min-h-12" required minLength={8} autoComplete="tel" value={f.phone} onChange={set("phone")} /></Field>
+        <Field label="Password *" hint="Scegli la tua password: almeno 8 caratteri."><PasswordInput registration value={f.password} onChange={password => setF({ ...f, password })} /></Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Comune *" className="col-span-2"><input required maxLength={120} autoComplete="address-level2" className="input min-h-12" value={f.city} onChange={set("city")} /></Field>
+          <Field label="Provincia *"><input required minLength={2} maxLength={2} pattern="[A-Za-z]{2}" autoComplete="address-level1" className="input min-h-12 uppercase" value={f.province} onChange={set("province")} /></Field>
+          <Field label="CAP *"><input required inputMode="numeric" pattern="[0-9]{5}" maxLength={5} autoComplete="postal-code" className="input min-h-12" value={f.cap} onChange={set("cap")} /></Field>
+        </div>
+        <Field label="La tua data di nascita *"><input required type="date" autoComplete="bday" max={new Date().toLocaleDateString("sv-SE")} className="input min-h-12" value={f.birthDate} onChange={set("birthDate")} /></Field>
+        <CustomerDogFields value={dog} onChange={setDog} />
+        <DogPhotoInput file={photo} onChange={setPhoto} />
+        <fieldset className="rounded-xl border border-sky-200 p-4">
+          <legend className="px-1 font-bold">Privacy e preferenze</legend>
+          <label className="flex min-h-12 cursor-pointer items-start gap-3 py-2 text-sm leading-relaxed"><input required type="checkbox" className="mt-1 h-5 w-5 shrink-0 accent-brand-navy" checked={f.consentPrivacy} onChange={e => setF({ ...f, consentPrivacy: e.target.checked })} /><span>Ho letto l'<Link href="/privacy-policy" target="_blank" className="font-semibold underline">informativa privacy</Link> ed accetto le <Link href="/condizioni-del-servizio" target="_blank" className="font-semibold underline">condizioni del servizio</Link> *</span></label>
+          <label className="mt-3 flex min-h-12 cursor-pointer items-start gap-3 rounded-xl bg-brand-sky p-3 text-sm leading-relaxed"><input type="checkbox" className="mt-1 h-5 w-5 shrink-0 accent-brand-navy" checked={f.consentMarketing} onChange={e => setF({ ...f, consentMarketing: e.target.checked })} /><span>Acconsento a ricevere comunicazioni, promemoria ed offerte via email, WhatsApp e notifiche.<strong className="mt-1 block">Scelta facoltativa, non necessaria per registrarti.</strong></span></label>
+          <p className="mt-3 text-xs leading-relaxed text-slate-600">Le comunicazioni necessarie al servizio, come conferme e promemoria dell'appuntamento, restano distinte dal marketing. Le push richiedono anche un'autorizzazione del browser dopo un tuo click.</p>
+        </fieldset>
         <ErrorBox error={err} />
-        <button className="btn-primary w-full" disabled={busy || !f.consentPrivacy}>Registrati</button>
+        <button className="btn-primary min-h-12 w-full" disabled={busy || !f.consentPrivacy || !photo}>{busy ? "Registrazione…" : "Completa la registrazione"}</button>
       </form>
       <p className="mt-4 text-center text-sm">Hai già un account? <Link href={`/login${window.location.search}`} className="font-semibold text-brand-blue">Accedi</Link></p>
     </AuthCard>

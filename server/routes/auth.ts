@@ -4,35 +4,29 @@ import crypto from "node:crypto";
 import { z } from "zod";
 import { and, eq, gt, sql, or } from "drizzle-orm";
 import { db } from "../db";
-import { users, privacyContacts, loginLog } from "../../shared/schema";
+import { users, loginLog } from "../../shared/schema";
 import { hashPassword, verifyPassword, needsRehash, publicUser, requireAuth, revokeSessions, isStaff, STAFF_SESSION_MS, CUSTOMER_SESSION_MS } from "../auth";
 import { audit } from "../services/audit";
 import { ensureCard } from "../services/loyalty";
 import { sendTemplate } from "../services/email";
-import { recordConsent, currentPolicyVersion } from "../services/consents";
+import { recordConsent, currentPolicyVersion, registrationPolicyVersion } from "../services/consents";
 import { notifyStaff } from "../services/notify";
-import { h, HttpError, zOptStr, zOptDay } from "../util";
+import { h, HttpError } from "../util";
+import multer from "multer";
+import { registrationSchema } from "../../shared/customer-booking";
+import { dogs, dogPhotos } from "../../shared/schema";
+import { storeDogPhoto, deleteStored } from "../services/storage";
+import { validateCustomFields } from "./account";
 
 const r = Router();
 const limiter = rateLimit({ windowMs: 15 * 60_000, limit: 20, standardHeaders: true, legacyHeaders: false, message: { error: "Troppi tentativi, riprova tra qualche minuto" } });
 const MAX_FAILS = 5, LOCK_MIN = 15;
+const registrationUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 2 * 1024 * 1024, files: 1 } });
 
 const password = z.string().min(8, "almeno 8 caratteri").max(128);
 const base = () => process.env.PUBLIC_URL || "";
 const token = () => crypto.randomBytes(32).toString("hex");
 const sha = (t: string) => crypto.createHash("sha256").update(t).digest("hex");
-
-const registerSchema = z.object({
-  email: z.string().trim().toLowerCase().email("email non valida").max(255),
-  password,
-  firstName: z.string().trim().min(1, "obbligatorio").max(100),
-  lastName: z.string().trim().min(1, "obbligatorio").max(100),
-  phone: z.string().trim().min(6, "telefono obbligatorio").max(40),
-  address: zOptStr(), city: zOptStr(120), province: zOptStr(10), cap: zOptStr(10), country: zOptStr(80),
-  birthDate: zOptDay,
-  consentPrivacy: z.literal(true, { errorMap: () => ({ message: "presa visione dell'informativa privacy obbligatoria" }) }),
-  consentMarketing: z.boolean().default(false), // mai preselezionato nell'interfaccia
-});
 
 async function sendVerification(u: { id: number; email: string; firstName: string }) {
   const t = token();
@@ -40,21 +34,38 @@ async function sendVerification(u: { id: number; email: string; firstName: strin
   await sendTemplate("verifica_email", u.email, { nome: u.firstName, link: `${base()}/verifica-email?token=${t}` }, { userId: u.id, cta: { label: "Verifica email", url: `${base()}/verifica-email?token=${t}` } });
 }
 
-r.post("/register", limiter, h(async (req, res) => {
-  const d = registerSchema.parse(req.body);
+r.post("/register", limiter, registrationUpload.single("photo"), h(async (req, res) => {
+  let payload: unknown = req.body;
+  if (typeof req.body?.payload === "string") {
+    try { payload = JSON.parse(req.body.payload); } catch { throw new HttpError(400, "Dati di registrazione non validi"); }
+  }
+  const d = registrationSchema.parse(payload);
+  if (!req.file) throw new HttpError(400, "Carica la foto del tuo cane per completare la scheda");
   const [exists] = await db.select({ id: users.id }).from(users).where(sql`lower(${users.email}) = ${d.email}`);
   if (exists) throw new HttpError(409, "Esiste già un account con questa email");
-  const { password: pw, ...data } = d;
-  const user = await db.transaction(async (tx) => {
+  const { password: pw, dog, ...data } = d;
+  dog.customFields = await validateCustomFields(dog.customFields);
+  const [privacyVersion, termsVersion] = await Promise.all([
+    registrationPolicyVersion("privacy-policy"), registrationPolicyVersion("condizioni-del-servizio"),
+  ]);
+  const stored = await storeDogPhoto(req.file.buffer, req.file.mimetype);
+  let user;
+  try { user = await db.transaction(async (tx) => {
     const [u] = await tx.insert(users).values({
-      ...data, passwordHash: await hashPassword(pw), role: "customer", commPush: false, consentDate: new Date(), unsubscribeToken: crypto.randomBytes(24).toString("hex"),
+      ...data, passwordHash: await hashPassword(pw), role: "customer", commPush: false, commEmail: true,
+      commWhatsapp: d.consentMarketing, consentDate: new Date(), unsubscribeToken: crypto.randomBytes(24).toString("hex"),
     }).returning();
-    await tx.update(privacyContacts).set({ linkedUserId: u.id }).where(sql`lower(${privacyContacts.email}) = ${d.email}`);
-    await recordConsent(tx, { userId: u.id, kind: "privacy", granted: true, source: "registrazione", req, policyVersion: await currentPolicyVersion("privacy") });
+    const [pet] = await tx.insert(dogs).values({ ...dog, ownerId: u.id }).returning();
+    await tx.insert(dogPhotos).values({ dogId: pet.id, storageKey: stored.key });
+    await tx.update(dogs).set({ photoUrl: `/api/account/dogs/${pet.id}/photo` }).where(eq(dogs.id, pet.id));
+    // Nessun collegamento automatico a contatti non verificati.
+    await recordConsent(tx, { userId: u.id, kind: "privacy", granted: true, proof: "presa_visione_informativa_alla_registrazione", source: "registrazione", req, policyVersion: privacyVersion });
+    await recordConsent(tx, { userId: u.id, kind: "condizioni", granted: true, proof: "accettazione_condizioni_servizio", source: "registrazione", req, policyVersion: termsVersion });
     await recordConsent(tx, { userId: u.id, kind: "marketing", granted: d.consentMarketing, source: "registrazione", req, policyVersion: await currentPolicyVersion("marketing") });
     await ensureCard(u.id, tx);
     return u;
-  });
+  }); } catch (error) { await deleteStored(stored.key); throw error; }
+  await new Promise<void>((resolve, reject) => req.session.regenerate(error => error ? reject(error) : resolve()));
   req.session.userId = user.id; req.session.sv = user.sessionVersion;
   await audit(req, "register", "user", user.id);
   await notifyStaff("clienti", { title: "Nuovo cliente registrato", body: `${user.firstName} ${user.lastName} si è registrato.`, url: `/admin/clienti/${user.id}` });

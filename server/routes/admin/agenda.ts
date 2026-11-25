@@ -19,6 +19,8 @@ const baseSelect = {
   id: appointments.id, startAt: appointments.startAt, endAt: appointments.endAt, durationMin: appointments.durationMin, status: appointments.status,
   operatorId: appointments.operatorId, serviceId: appointments.serviceId, dogId: appointments.dogId, customerId: appointments.customerId,
   customerNotes: appointments.customerNotes, adminNotes: appointments.adminNotes, changeRequest: appointments.changeRequest,
+  coatKnotsToday: appointments.coatKnotsToday, coatSheddingToday: appointments.coatSheddingToday,
+  durationNeedsReview: appointments.durationNeedsReview,
   requestedServiceIds:appointments.requestedServiceIds,alternativeAvailability:appointments.alternativeAvailability,
   servicePriceSnapshot:appointments.servicePriceSnapshot,
   privacyAcknowledgedAt:appointments.privacyAcknowledgedAt,privacyVersion:appointments.privacyVersion,

@@ -10,6 +10,7 @@ import { useMe, useLogout } from "@/lib/auth";
 import { usePublicSettings } from "@/lib/settings";
 import { fmtLong, fmtDate, fmtDay, fmtDateTime, todayISO } from "@/lib/format";
 import PushPreferences from "@/components/PushPreferences";
+import { api } from "@/lib/api";
 import { euro, SIZE_LABELS, PAYMENT_METHODS, PAYMENT_KINDS, ORDER_STATUS, BOARDING_STATUS, STATUS_COLORS, LOYALTY_KINDS } from "@shared/constants";
 
 const NAV = [
@@ -78,7 +79,6 @@ function Overview() {
   if (isLoading) return <Spinner />;
   return (
     <div className="grid gap-4 md:grid-cols-2">
-      <PushPreferences compact />
       <div className="card md:col-span-2">
         <h2 className="mb-2 font-bold">Prossimo appuntamento</h2>
         {data?.next ? (
@@ -206,10 +206,13 @@ function Dogs() {
   const params = new URLSearchParams(window.location.search);
   const { data, isLoading } = useQuery<any[]>({ queryKey: ["my-dogs"], queryFn: () => get("/api/account/dogs") });
   const [editing, setEditing] = useState<any>(params.get("nuovo") ? {} : null);
-  const save = async (d: any) => {
-    if (editing?.id) await patch(`/api/account/dogs/${editing.id}`, d); else await post("/api/account/dogs", d);
+  const editingId = params.get("modifica");
+  useEffect(() => { if (editingId && data) setEditing(data.find(d => d.id === Number(editingId)) || null); }, [editingId, data]);
+  const save = async (d: any, photo?: File | null) => {
+    const form = new FormData(); form.append("payload", JSON.stringify(d)); if (photo) form.append("photo", photo);
+    await api(editing?.id ? `/api/account/dogs/${editing.id}` : "/api/account/dogs", { method: editing?.id ? "PATCH" : "POST", form });
     qc.invalidateQueries({ queryKey: ["my-dogs"] }); setEditing(null); toast("Scheda salvata");
-    const next = params.get("next"); if (next && next.startsWith("/")) nav(next);
+    const next = params.get("next"); if (next && /^\/(?![\/\\])/.test(next)) nav(next);
   };
   if (isLoading) return <Spinner />;
   return (
@@ -226,7 +229,7 @@ function Dogs() {
                   <button className="btn-ghost btn-sm text-red-600" aria-label="Rimuovi" onClick={async () => { if (confirm(`Rimuovere ${d.name}?`)) { await del(`/api/account/dogs/${d.id}`); qc.invalidateQueries({ queryKey: ["my-dogs"] }); } }}><Trash2 size={14} /></button>
                 </div>
               </div>
-              <div className="mt-2 flex flex-wrap gap-1">{d.coatKnots && <span className="badge bg-amber-100 text-amber-800">Nodi</span>}{d.coatShedding && <span className="badge bg-amber-100 text-amber-800">Muta</span>}{d.aggressive && <span className="badge bg-red-100 text-red-700">Attenzione</span>}</div>
+              <div className="mt-2 flex flex-wrap gap-1">{d.aggressive && <span className="badge bg-red-100 text-red-700">Attenzione</span>}</div>
             </div>
           ))}
         </div>

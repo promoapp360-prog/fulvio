@@ -10,7 +10,8 @@ import {
   guestCustomers, guestBookings, guestBookingEvents,
 } from "../../shared/schema";
 import { requireAuth, publicUser } from "../auth";
-import { createRequest, applyAction, paidTotal, logEvent } from "../services/appointments";
+import { createRequest, applyAction, paidTotal, logEvent, bookingAvailability } from "../services/appointments";
+import { appointmentRequestSchema, customerDogSchema } from "../../shared/customer-booking";
 import { ensureCard, upcomingExpiries, redeem } from "../services/loyalty";
 import { recordConsent, currentPolicyVersion } from "../services/consents";
 import { priceItems, promoDiscount } from "../services/shop";
@@ -148,23 +149,49 @@ r.get("/dog-fields", h(async (_req, res) => {
 }));
 
 r.get("/dogs", h(async (req, res) => {
-  res.json(await db.select().from(dogs).where(and(eq(dogs.ownerId, req.user!.id), eq(dogs.archived, false))).orderBy(asc(dogs.name)));
+  const rows = await db.select({ dog: dogs, photoId: dogPhotos.id }).from(dogs).leftJoin(dogPhotos, eq(dogPhotos.dogId, dogs.id))
+    .where(and(eq(dogs.ownerId, req.user!.id), eq(dogs.archived, false))).orderBy(asc(dogs.name));
+  res.json(rows.map(({ dog, photoId }) => ({ ...dog, hasPhoto: !!photoId, photoUrl: photoId ? `/api/account/dogs/${dog.id}/photo` : null })));
 }));
 
-r.post("/dogs", h(async (req, res) => {
-  const d = dogSchema.parse(req.body);
+r.post("/dogs", requestPhotoUpload.single("photo"), h(async (req, res) => {
+  const d = customerDogSchema.parse(parseDogPayload(req));
   d.customFields = await validateCustomFields(d.customFields);
-  const [dog] = await db.insert(dogs).values({ ...d, ownerId: req.user!.id } as any).returning();
+  if (!req.file) throw new HttpError(400, "Carica la foto del cane");
+  const photo = await storeDogPhoto(req.file.buffer, req.file.mimetype);
+  let dog;
+  try { dog = await db.transaction(async tx => {
+    const [pet] = await tx.insert(dogs).values({ ...d, ownerId: req.user!.id }).returning();
+    await tx.insert(dogPhotos).values({ dogId: pet.id, storageKey: photo.key });
+    const [saved] = await tx.update(dogs).set({ photoUrl: `/api/account/dogs/${pet.id}/photo` }).where(eq(dogs.id, pet.id)).returning();
+    return saved;
+  }); } catch (error) { await deleteStored(photo.key); throw error; }
   res.status(201).json(dog);
 }));
 
-r.patch("/dogs/:id", h(async (req, res) => {
-  const d = dogSchema.partial().parse(req.body);
-  if (d.customFields) d.customFields = await validateCustomFields(d.customFields);
-  const [dog] = await db.update(dogs).set({ ...d, updatedAt: new Date() } as any).where(and(eq(dogs.id, id(req.params.id)), eq(dogs.ownerId, req.user!.id))).returning();
-  if (!dog) throw new HttpError(404, "Cane non trovato");
+r.patch("/dogs/:id", requestPhotoUpload.single("photo"), h(async (req, res) => {
+  const dogId = id(req.params.id);
+  const [current] = await db.select().from(dogs).where(and(eq(dogs.id, dogId), eq(dogs.ownerId, req.user!.id)));
+  if (!current) throw new HttpError(404, "Cane non trovato");
+  const d = customerDogSchema.parse({ ...current, ...parseDogPayload(req) });
+  d.customFields = await validateCustomFields(d.customFields);
+  const [oldPhoto] = await db.select().from(dogPhotos).where(eq(dogPhotos.dogId, dogId));
+  if (!oldPhoto && !req.file) throw new HttpError(400, "Carica la foto del cane");
+  const photo = req.file ? await storeDogPhoto(req.file.buffer, req.file.mimetype) : null;
+  let dog;
+  try { dog = await db.transaction(async tx => {
+    const [saved] = await tx.update(dogs).set({ ...d, photoUrl: `/api/account/dogs/${dogId}/photo`, updatedAt: new Date() }).where(eq(dogs.id, dogId)).returning();
+    if (photo) await tx.insert(dogPhotos).values({ dogId, storageKey: photo.key }).onConflictDoUpdate({ target: dogPhotos.dogId, set: { storageKey: photo.key, createdAt: new Date() } });
+    return saved;
+  }); } catch (error) { if (photo) await deleteStored(photo.key); throw error; }
+  // Non eliminare la foto precedente: può essere referenziata dallo storico.
   res.json(dog);
 }));
+
+function parseDogPayload(req: any) {
+  if (typeof req.body?.payload !== "string") return req.body;
+  try { return JSON.parse(req.body.payload); } catch { throw new HttpError(400, "Scheda cane non valida"); }
+}
 
 r.delete("/dogs/:id", h(async (req, res) => {
   // archiviazione: lo storico trattamenti resta consultabile dal salone
@@ -202,31 +229,22 @@ r.get("/appointments", h(async (req, res) => {
   }));
 }));
 
-r.post("/appointments",appointmentRequestLimiter,requestPhotoUpload.single("photo"),h(async(req,res)=>{
+r.get("/booking-availability", h(async (req, res) => {
+  res.set("Cache-Control", "no-store");
+  const q = z.object({ dogId: z.coerce.number().int().positive(), date: zDay,
+    serviceIds: z.string().regex(/^\d+(,\d+)*$/).transform(value => value.split(",").map(Number)) }).parse(req.query);
+  res.json(await bookingAvailability(req.user!.id, q.dogId, q.serviceIds, q.date));
+}));
+
+r.post("/appointments",appointmentRequestLimiter,h(async(req,res)=>{
   let payload:unknown;
-  try{payload=JSON.parse(String(req.body?.payload||"{}"));}catch{throw new HttpError(400,"Dati della richiesta non validi.");}
-  const d=z.object({
-    dogId:z.number().int().positive(),serviceIds:z.array(z.number().int().positive()).min(1).max(10),
-    operatorId:z.number().int().positive().nullable(),date:zDay,time:zTime,notes:z.string().trim().max(1000).default(""),
-    alternativeAvailability:z.string().trim().max(500).default(""),privacy:z.literal(true),
-    marketing:z.boolean().default(false),requestKey:z.string().uuid(),serviceId:z.number().int().positive().optional(),
-  }).parse(payload);
+  try{payload=typeof req.body?.payload==="string"?JSON.parse(req.body.payload):req.body;}catch{throw new HttpError(400,"Dati della richiesta non validi.");}
+  const d=appointmentRequestSchema.parse(payload);
   if(d.date<todayRome()) throw new HttpError(400,"Data nel passato.");
-  const serviceIds=d.serviceIds|| (d.serviceId?[d.serviceId]:[]);
-  if(!serviceIds.length)throw new HttpError(400,"Seleziona almeno un servizio.");
-  let stored:{key:string}|null=null;
-  try{
-    if(req.file) stored=await storeDogPhoto(req.file.buffer,req.file.mimetype);
-    const privacyVersion=await privacyPolicyVersion();
-    const marketingPolicyVersion=d.marketing?await currentPolicyVersion("marketing"):null;
-    const app=await createRequest(req.user!.id,{
-      ...d,serviceIds,start:romeToDate(d.date,d.time),privacyVersion,marketingPolicyVersion,request:req,
-      privacyIp:String(req.ip||"").slice(0,64)||null,
-      privacyUserAgent:String(req.get("user-agent")||"").slice(0,255)||null,
-      photoKey:stored?.key||null,
-    });
-    res.status(201).json({ok:true,id:app.id,message:"Richiesta inviata. Attendi la conferma di Dog’s Planet."});
-  }catch(e){if(stored?.key) await deleteStored(stored.key);throw e;}
+  const app=await createRequest(req.user!.id,{ ...d, request:req });
+  const [{ total }] = await db.select({ total: sql<number>`count(*)::int` }).from(appointments).where(eq(appointments.customerId, req.user!.id));
+  res.status(app.duplicate?200:201).json({ok:true,id:app.id,duplicate:app.duplicate,firstRequest:total===1,
+    message:"Richiesta inviata! L'appuntamento è confermato solo dopo la risposta del salone."});
 }));
 
 r.post("/appointments/:id/action", h(async (req, res) => {
@@ -434,6 +452,14 @@ async function recordPushConsent(tx: any, req: Request, granted: boolean) {
 }
 
 /** Controllo senza permessi tecnici, sottoscrizioni automatiche o modifiche ai dati. */
+r.post("/push/offer", h(async (req, res) => {
+  const [{ total }] = await db.select({ total: sql<number>`count(*)::int` }).from(appointments).where(eq(appointments.customerId, req.user!.id));
+  if (!pushConfiguration.configured || total !== 1 || !req.user!.consentMarketing) return res.json({ offer: false });
+  const rows = await db.update(users).set({ pushOfferedAt: new Date() }).where(and(eq(users.id, req.user!.id),
+    isNull(users.pushOfferedAt), eq(users.consentMarketing, true))).returning({ id: users.id });
+  res.json({ offer: rows.length > 0 });
+}));
+
 r.post("/push/status", h(async (req, res) => {
   const { endpoint } = z.object({ endpoint: z.string().url().max(1000).nullable() }).parse(req.body);
   const matches = endpoint ? await db.select({ id: pushSubscriptions.id }).from(pushSubscriptions)

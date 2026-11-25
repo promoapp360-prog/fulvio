@@ -34,6 +34,7 @@ export default function CookieBanner(){
   const {data:config,refetch}=useQuery<CookieConfig>({queryKey:["cookie-config"],queryFn:()=>get("/api/public/cookie-config"),staleTime:60_000});
   const [consent,setConsent]=useState<CookieConsent|null>(readCookieChoice);
   const [open,setOpen]=useState(!readCookieChoice()),[customize,setCustomize]=useState(false);
+  useEffect(() => { window.dispatchEvent(new Event("dp:cookie-visibility")); }, [open]);
   const [prefs,setPrefs]=useState({analytics:false,marketing:false,externalContent:false});
   const [busy,setBusy]=useState(false),[error,setError]=useState<unknown>(null);
   useEffect(()=>{

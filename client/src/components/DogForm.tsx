@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Field, Check, ErrorBox } from "./ui";
 import { get } from "@/lib/api";
 import { SIZES, SIZE_LABELS } from "@shared/constants";
+import CustomerDogFields, { DogPhotoInput } from "./CustomerDogFields";
 
 export const emptyDog = {
   name: "", species: "cane", breed: "", size: "media", weightKg: "", birthDate: "", notes: "",
@@ -26,12 +27,13 @@ const Section = ({ title, children }: { title: string; children: React.ReactNode
 
 /** Scheda cane completa, con i campi personalizzati definiti dall'amministratore. */
 export default function DogForm({ initial, onSubmit, onCancel, fieldsUrl = "/api/account/dog-fields", adminExtras = false }: {
-  initial?: any; onSubmit: (d: any) => Promise<void>; onCancel?: () => void; fieldsUrl?: string; adminExtras?: boolean;
+  initial?: any; onSubmit: (d: any, photo?: File | null) => Promise<void>; onCancel?: () => void; fieldsUrl?: string; adminExtras?: boolean;
 }) {
   const [d, setD] = useState<any>(() => ({ ...emptyDog, ...(initial || {}), weightKg: initial?.weightKg ?? "", food: { ...(initial?.food || {}) }, customFields: { ...(initial?.customFields || {}) } }));
   const [err, setErr] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
-  const { data: fields } = useQuery<any[]>({ queryKey: ["dog-fields", fieldsUrl], queryFn: () => get(fieldsUrl).then((r: any) => (Array.isArray(r) ? r : r.rows).filter((f: any) => f.active)) });
+  const [photo, setPhoto] = useState<File | null>(null);
+  const { data: fields } = useQuery<any[]>({ queryKey: ["dog-fields", fieldsUrl], queryFn: () => get(fieldsUrl).then((r: any) => (Array.isArray(r) ? r : r.rows).filter((f: any) => f.active)), enabled: adminExtras });
 
   const set = (k: string) => (e: any) => setD({ ...d, [k]: e?.target ? e.target.value : e });
   const setFood = (k: string, v: any) => setD({ ...d, food: { ...d.food, [k]: v } });
@@ -48,16 +50,18 @@ export default function DogForm({ initial, onSubmit, onCancel, fieldsUrl = "/api
   const submit = async (e: React.FormEvent) => {
     e.preventDefault(); setErr(null); setBusy(true);
     try {
+      if (!adminExtras && !initial?.photoUrl && !photo) throw new Error("Carica la foto del cane");
       const nul = (v: any) => (v === "" ? null : v);
       await onSubmit({
         ...d, breed: nul(d.breed), ...(adminExtras ? { recallDays: d.recallDays ? Number(d.recallDays) : null } : { recallDays: undefined, lastRecallAt: undefined }), weightKg: d.weightKg === "" ? null : Number(String(d.weightKg).replace(",", ".")), birthDate: nul(d.birthDate), lastBath: nul(d.lastBath),
         id: undefined, ownerId: undefined, createdAt: undefined, updatedAt: undefined, archived: undefined, owner: undefined, lastRecallAt: undefined,
-      });
+      }, photo);
     } catch (x) { setErr(x); } finally { setBusy(false); }
   };
 
   return (
     <form onSubmit={submit} className="space-y-4">
+      {!adminExtras ? <><CustomerDogFields value={d} onChange={setD} /><DogPhotoInput file={photo} existingUrl={initial?.photoUrl} onChange={setPhoto} /></> : <>
       <Section title="Dati principali">
         <Field label="Nome *"><input className="input" required value={d.name} onChange={set("name")} /></Field>
         <Field label="Specie *"><select className="input" value={d.species || "cane"} onChange={set("species")}><option value="cane">Cane</option><option value="gatto">Gatto</option></select></Field>
@@ -69,7 +73,6 @@ export default function DogForm({ initial, onSubmit, onCancel, fieldsUrl = "/api
         {custom("principali")}
       </Section>
       <Section title="Stato del pelo">
-        <div className="flex flex-col gap-2 pt-5"><Check checked={d.coatKnots} onChange={set("coatKnots")} label="Presenza di nodi" /><Check checked={d.coatShedding} onChange={set("coatShedding")} label="In muta" /></div>
         <Field label="Ultimo bagno"><input type="date" className="input" value={d.lastBath || ""} onChange={set("lastBath")} /></Field>
         <Field label="Tipo di pelo"><input className="input" placeholder="Es. lungo, riccio, duro…" value={d.coatType || ""} onChange={set("coatType")} /></Field>
         <Field label="Lunghezza del pelo"><select className="input" value={d.coatLength || ""} onChange={set("coatLength")}><option value="">Non indicata</option><option value="corto">Corto</option><option value="medio">Medio</option><option value="lungo">Lungo</option></select></Field>
@@ -110,6 +113,7 @@ export default function DogForm({ initial, onSubmit, onCancel, fieldsUrl = "/api
           {d.recallDays && ![20, 30, 45, 60].includes(Number(d.recallDays)) && <Field label="Giorni personalizzati"><input type="number" min={1} max={365} className="input" value={d.recallDays} onChange={(e) => setD({ ...d, recallDays: e.target.value })} /></Field>}
         </Section>
       )}
+      </>}
       <ErrorBox error={err} />
       <div className="flex justify-end gap-2">
         {onCancel && <button type="button" className="btn-ghost" onClick={onCancel}>Annulla</button>}

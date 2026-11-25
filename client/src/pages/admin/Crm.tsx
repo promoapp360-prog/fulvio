@@ -183,9 +183,10 @@ export function CustomerDetail({ id }: { id: number }) {
           <button className="btn-primary btn-sm mb-3" onClick={() => setDog({})}><Plus size={14} /> Aggiungi cane</button>
           <div className="grid gap-3 md:grid-cols-2">{data.dogs.map((d: any) => (
             <div key={d.id} className={`card ${d.archived ? "opacity-60" : ""}`}>
+              {d.photoUrl && <img src={`/api/admin/dogs/${d.id}/photo`} alt={`Foto di ${d.name}`} className="mb-3 h-28 w-28 rounded-xl object-contain" />}
               <div className="flex justify-between"><div><h3 className="text-lg font-bold">{d.name}{d.archived && " (archiviato)"}</h3><p className="text-sm text-slate-600">{d.breed || "—"} · {SIZE_LABELS[d.size]} {d.weightKg ? `· ${d.weightKg} kg` : ""} {d.birthDate ? `· ${ageOf(d.birthDate)}` : ""}</p></div>
                 <button className="btn-ghost btn-sm" onClick={() => setDog(d)}><Pencil size={14} /></button></div>
-              <div className="mt-2 flex flex-wrap gap-1">{d.recallDays && <span className="badge bg-sky-100 text-sky-800">Richiamo ogni {d.recallDays} gg</span>}{d.coatKnots && <span className="badge bg-amber-100 text-amber-800">Nodi</span>}{d.coatShedding && <span className="badge bg-amber-100 text-amber-800">Muta</span>}{d.aggressive && <span className="badge bg-red-100 text-red-700">Aggressivo</span>}</div>
+              <div className="mt-2 flex flex-wrap gap-1">{d.recallDays && <span className="badge bg-sky-100 text-sky-800">Richiamo ogni {d.recallDays} gg</span>}{d.aggressive && <span className="badge bg-red-100 text-red-700">Aggressivo</span>}</div>
               <dl className="mt-2 grid grid-cols-2 gap-x-3 text-xs text-slate-600">
                 {[["Pelo", d.coatType], ["Ultimo bagno", d.lastBath && fmtDay(d.lastBath)], ["Articolazioni", d.jointIssues], ["Dermatiti", d.dermatitis], ["Intolleranze", d.intolerances], ["Sensibilità", d.sensitivities], ["Altri animali", d.otherPets], ["Note", d.notes]].filter(([, v]) => v).map(([k, v]) => <div key={k as string}><dt className="font-bold">{k}</dt><dd>{v}</dd></div>)}
                 {Object.entries(d.customFields || {}).map(([k, v]) => <div key={k}><dt className="font-bold">{k}</dt><dd>{String(v)}</dd></div>)}
@@ -280,7 +281,7 @@ export function DogsPage() {
         {isLoading ? <Spinner /> : !dogs?.length ? <Empty>Nessun cane trovato.</Empty> : (
           <div className="overflow-x-auto rounded-2xl border bg-white"><table className="table-dp"><thead><tr><th>Cane</th><th>Razza</th><th>Taglia</th><th>Proprietario</th><th>Note</th><th /></tr></thead>
             <tbody>{dogs.map((d) => <tr key={d.id}><td className="font-bold">{d.name}{d.aggressive && " ⚠"}</td><td>{d.breed || "—"}</td><td>{SIZE_LABELS[d.size]}</td><td><Link href={`/admin/clienti/${d.ownerId}`} className="text-brand-blue underline">{d.owner}</Link></td>
-              <td className="text-xs">{[d.coatKnots && "nodi", d.coatShedding && "muta", d.recallDays && `richiamo ${d.recallDays} gg`].filter(Boolean).join(" · ")}</td>
+              <td className="text-xs">{d.recallDays ? `richiamo ${d.recallDays} gg` : "—"}</td>
               <td><button className="btn-outline btn-sm" onClick={() => { setF({ dogId: String(d.id) }); setTab("storico"); }}>Storico</button></td></tr>)}</tbody></table></div>
         )}
       </>}

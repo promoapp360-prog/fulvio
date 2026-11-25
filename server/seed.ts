@@ -7,6 +7,7 @@ import { hashPassword } from "./auth";
 import { slugify } from "./util";
 import { COOKIE_DRAFT, PRIVACY_DRAFT } from "./services/legal-documents";
 import { applyPhaseOneContent } from "./services/phase-one-content";
+import { applyBookingContent } from "./services/booking-content";
 
 const LEGACY_BOOKING_INSTRUCTIONS = "1. Registrati e crea la scheda del tuo cane\n2. Scegli servizio, operatore, giorno e orario\n3. Invia la richiesta: Dog's Planet la verifica e ti conferma l'appuntamento";
 const BOOKING_INSTRUCTIONS = "1. Scegli sul calendario il giorno che preferisci.\n2. Seleziona un orario tra quelli disponibili.\n3. Accedi / Registrati oppure continua come ospite: compila i dati del proprietario e dell’animale, scegli i servizi e invia la richiesta. Registrarsi non è obbligatorio.\n4. Attendi l’approvazione di Fulvio: verifica la richiesta e conferma l’appuntamento oppure propone una variazione.\n\nL’invio è una richiesta, non una prenotazione confermata. La compatibilità dell’orario viene ricontrollata in base ai servizi e alle caratteristiche dell’animale prima dell’invio.";
@@ -337,6 +338,7 @@ export async function seedIfEmpty() {
   const [{ n: faqCount }] = (await pool.query("SELECT count(*)::int AS n FROM faqs")).rows;
   if (faqCount === 0) await db.insert(faqs).values(SELF_FAQ.map((f, i) => ({ ...f, section: "selfservice", sortOrder: i })));
   await applyPhaseOneContent();
+  await applyBookingContent();
 }
 
 if (process.argv[1] && process.argv[1].endsWith("seed.ts")) {

@@ -7,6 +7,7 @@ import {
 } from "../../shared/schema";
 import { getSettings } from "./settings";
 import { selectServicePricingRule } from "../../shared/service-pricing";
+import { isNailTrim } from "../../shared/customer-booking";
 import { addDays, dateToRome, romeToDate, toMin, fromMin, weekdayOf } from "../time";
 import { subtractInterval as subtract, shiftWindows, freeSlots, type Interval } from "../logic";
 
@@ -49,6 +50,7 @@ export async function quote(serviceId: number, dog?: (Pick<Dog, "size" | "coatKn
       }
     }
   }
+  if (isNailTrim(svc)) duration = 5;
   if (pricingType === "orario") {
     const settings = await getSettings();
     price = Math.round((settings.pricing?.hourlyRateCents ?? 5000) * duration / 60);
@@ -114,8 +116,14 @@ async function busyIntervals(operatorId: number, day: string, bufferMin: number,
   const from = romeToDate(day, "00:00"), to = romeToDate(addDays(day, 1), "00:00");
   const statuses = blockPending ? BLOCKING_STATUSES : ["confermata", "attesa_pagamento"];
   const rows = await tx.select().from(appointments).where(and(
-    eq(appointments.operatorId, operatorId), inArray(appointments.status, statuses as (typeof appointments.$inferSelect.status)[]),
-    lt(appointments.startAt, to), gt(appointments.endAt, from),
+    inArray(appointments.status, statuses as (typeof appointments.$inferSelect.status)[]),
+    or(
+      and(sql`${appointments.status}<>'proposta'`, sql`coalesce(${appointments.operatorId}, ${appointments.reservedOperatorId}) = ${operatorId}`,
+        lt(appointments.startAt, to), gt(appointments.endAt, from)),
+      and(eq(appointments.status, "proposta"), eq(appointments.proposedOperatorId, operatorId),
+        isNotNull(appointments.proposedStartAt), lt(appointments.proposedStartAt, to),
+        sql`${appointments.proposedStartAt}+(${appointments.durationMin} * interval '1 minute')>${from}`),
+    ),
     excludeId ? ne(appointments.id, excludeId) : sql`true`,
   ));
   const guestStatuses = blockPending ? ["richiesta", "in_valutazione", "proposta", "confermata"] : ["confermata"];

@@ -18,13 +18,18 @@ export async function notifyUser(user: User, msg: { title: string; body: string;
 }
 
 /** Notifica lo staff (admin + utenti con il permesso indicato): in-app e push; email solo agli admin. */
-export async function notifyStaff(perm: string, msg: { title: string; body: string; url?: string }) {
+export async function notifyStaff(perm: string, msg: { title: string; body: string; url?: string; emailTo?: string; dedupeKey?: string }) {
   const staff = await db.select().from(users).where(or(eq(users.role, "admin"), inArray(users.role, ["manager", "operator"])));
   const targets = staff.filter((u) => u.active && (u.role === "admin" || (u.permissions || []).includes(perm)));
-  if (!targets.length) return;
-  await db.insert(notifications).values(targets.map((u) => ({ userId: u.id, title: msg.title, body: msg.body, url: msg.url })));
+  if (targets.length) await db.insert(notifications).values(targets.map((u) => ({ userId: u.id, title: msg.title, body: msg.body, url: msg.url })));
   await pushToUsers(targets.map((u) => u.id), msg);
   const base = process.env.PUBLIC_URL || "";
+  if (msg.emailTo) {
+    await sendTemplate("comunicazione", msg.emailTo, { oggetto: msg.title, messaggio: msg.body }, {
+      dedupeKey: msg.dedupeKey, cta: msg.url ? { label: "Apri il gestionale", url: base + msg.url } : undefined,
+    });
+    return;
+  }
   for (const u of targets.filter((t) => t.role === "admin" && t.commEmail)) {
     await sendTemplate("comunicazione", u.email, { oggetto: msg.title, messaggio: msg.body }, { userId: u.id, cta: msg.url ? { label: "Apri il gestionale", url: base + msg.url } : undefined });
   }
