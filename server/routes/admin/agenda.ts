@@ -20,6 +20,7 @@ const baseSelect = {
   operatorId: appointments.operatorId, serviceId: appointments.serviceId, dogId: appointments.dogId, customerId: appointments.customerId,
   customerNotes: appointments.customerNotes, adminNotes: appointments.adminNotes, changeRequest: appointments.changeRequest,
   requestedServiceIds:appointments.requestedServiceIds,alternativeAvailability:appointments.alternativeAvailability,
+  servicePriceSnapshot:appointments.servicePriceSnapshot,
   privacyAcknowledgedAt:appointments.privacyAcknowledgedAt,privacyVersion:appointments.privacyVersion,
   estimatedPriceCents: appointments.estimatedPriceCents, finalPriceCents: appointments.finalPriceCents, paymentMode: appointments.paymentMode,
   depositCents: appointments.depositCents, proposedStartAt: appointments.proposedStartAt, allowOverlap: appointments.allowOverlap, createdAt: appointments.createdAt,
@@ -48,7 +49,8 @@ r.get("/appointments", requirePerm("agenda_view"), h(async (req, res) => {
     conds.push(eq(appointments.operatorId, me?.id ?? -1));
   } else if (q.operatorId) conds.push(eq(appointments.operatorId, q.operatorId));
   if (!q.all) conds.push(inArray(appointments.status, ["richiesta", "in_valutazione", "proposta", "confermata", "attesa_pagamento", "completata", "assente"]));
-  res.json(await joined().where(and(...conds)).orderBy(asc(appointments.startAt)));
+  const rows = await joined().where(and(...conds)).orderBy(asc(appointments.startAt));
+  res.json(rows.map(row => ({ ...row, serviceName: row.servicePriceSnapshot?.map((s: any) => s.name).filter(Boolean).join(", ") || row.serviceName })));
 }));
 
 /** Coda richieste da gestire */
@@ -57,7 +59,8 @@ r.get("/requests", requirePerm("richieste"), h(async (req, res) => {
   const cond = status === "aperte"
     ? or(inArray(appointments.status, ["richiesta", "in_valutazione", "proposta", "attesa_pagamento"]), isNotNull(appointments.changeRequest))
     : eq(appointments.status, status as any);
-  res.json(await joined().where(cond).orderBy(asc(appointments.startAt)).limit(200));
+  const rows = await joined().where(cond).orderBy(asc(appointments.startAt)).limit(200);
+  res.json(rows.map(row => ({ ...row, serviceName: row.servicePriceSnapshot?.map((s: any) => s.name).filter(Boolean).join(", ") || row.serviceName })));
 }));
 
 /** Ospiti: archivio separato, nessun account o scheda appuntamento fittizia. */
@@ -76,7 +79,9 @@ r.get("/guest-requests",requirePerm("richieste"),h(async(req,res)=>{
     .leftJoin(operators,eq(operators.id,guestBookings.operatorId))
     .where(and(...filters)).orderBy(asc(guestBookings.startAt)).limit(200);
   const serviceMap=new Map((await db.select({id:services.id,name:services.name}).from(services)).map(s=>[s.id,s.name]));
-  res.json(rows.map(row=>({...row,serviceNames:(row.booking.requestedServiceIds||[]).map((sid:number)=>serviceMap.get(sid)).filter(Boolean)})));
+  res.json(rows.map(row=>({...row,serviceNames:(row.booking.servicePriceSnapshot||[]).map((s:any)=>s.name).filter(Boolean).length
+    ? row.booking.servicePriceSnapshot.map((s:any)=>s.name).filter(Boolean)
+    : (row.booking.requestedServiceIds||[]).map((sid:number)=>serviceMap.get(sid)).filter(Boolean)})));
 }));
 
 r.get("/guest-bookings/:id",requirePerm("richieste","clienti"),h(async(req,res)=>{
@@ -87,7 +92,8 @@ r.get("/guest-bookings/:id",requirePerm("richieste","clienti"),h(async(req,res)=
     .innerJoin(services,eq(services.id,guestBookings.serviceId))
     .leftJoin(operators,eq(operators.id,guestBookings.operatorId)).where(eq(guestBookings.id,gid));
   if(!row) throw new HttpError(404,"Richiesta ospite non trovata.");
-  const serviceNames=row.booking.requestedServiceIds.length?await db.select({id:services.id,name:services.name}).from(services).where(inArray(services.id,row.booking.requestedServiceIds)):[];
+  const serviceNames=row.booking.servicePriceSnapshot?.length?row.booking.servicePriceSnapshot.map((s:any)=>({name:s.name})):
+    row.booking.requestedServiceIds.length?await db.select({id:services.id,name:services.name}).from(services).where(inArray(services.id,row.booking.requestedServiceIds)):[];
   const events=await db.select().from(guestBookingEvents).where(eq(guestBookingEvents.bookingId,gid)).orderBy(asc(guestBookingEvents.id));
   res.json({...row,serviceNames:serviceNames.map(s=>s.name),events});
 }));
@@ -100,7 +106,7 @@ r.get("/guest-bookings/:id/photo",requirePerm("richieste","clienti"),h(async(req
 }));
 
 r.post("/guest-bookings/:id/action",requirePerm("richieste"),h(async(req,res)=>{
-  const d=z.object({action:z.enum(["conferma","rifiuta","proponi"]),date:zDay.optional(),time:zTime.optional(),operatorId:z.number().int().positive().nullable().optional(),reason:zOptStr(1000)}).parse(req.body);
+  const d=z.object({action:z.enum(["conferma","rifiuta","proponi"]),date:zDay.optional(),time:zTime.optional(),operatorId:z.number().int().positive().nullable().optional(),finalPriceCents:z.number().int().min(0).nullable().optional(),reason:zOptStr(1000)}).parse(req.body);
   res.json(await actOnGuestBooking(req.params.id,req.user!.id,d));
 }));
 
@@ -124,7 +130,8 @@ r.get("/appointments/:id", requirePerm("agenda_view"), h(async (req, res) => {
   const [extra] = await db.select({ treatmentNotes: appointments.treatmentNotes, cancelReason: appointments.cancelReason, cancelledAt: appointments.cancelledAt, cancelledBy: appointments.cancelledBy, lateCancel: appointments.lateCancel })
     .from(appointments).where(eq(appointments.id, aid));
   const requestedIds=a.requestedServiceIds?.length?a.requestedServiceIds:[a.serviceId];
-  const requestedServices=await db.select({id:services.id,name:services.name}).from(services).where(inArray(services.id,requestedIds));
+  const requestedServices=a.servicePriceSnapshot?.length?a.servicePriceSnapshot.map((s:any)=>({...s,id:s.serviceId})):
+    await db.select({id:services.id,name:services.name}).from(services).where(inArray(services.id,requestedIds));
   res.json({ ...a, ...extra, requestedServices, dog, events: events.map((x) => ({ ...x.e, actor: x.actor })), payments: pays, paidCents: await paidTotal(aid) });
 }));
 

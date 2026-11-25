@@ -16,7 +16,7 @@ export function Products() {
   const { data: ps } = useQuery<any>({ queryKey: ["public-settings"], queryFn: () => get("/api/public/settings") });
   return (
     <div>
-      {!ps?.site?.shopEnabled && <p className="mb-3 rounded-xl bg-amber-50 p-3 text-sm text-amber-900">Lo shop on line è ancora <b>"In arrivo"</b> sul sito pubblico. Puoi preparare il catalogo e attivarlo da Contenuti sito → Home e sito.</p>}
+      {!ps?.site?.shopEnabled && <p className="mb-3 rounded-xl bg-amber-50 p-3 text-sm text-amber-900">#LaPappadiPoppy è ancora <b>Coming Soon</b> sul sito pubblico. Puoi preparare il catalogo ed attivarlo da Contenuti sito → Home e banner.</p>}
       <Tabs value={tab} onChange={setTab} items={[{ value: "prodotti", label: "Prodotti" }, { value: "categorie", label: "Categorie" }]} />
       {tab === "categorie" ? (
         <ResourceManager title="Categorie" endpoint="/api/admin/categories" defaults={{ sortOrder: 0, active: true }}
@@ -93,7 +93,7 @@ export function Stock() {
   };
   return (
     <div>
-      <PageTitle title="Magazzino" subtitle="Carichi, scarichi, rettifiche, inventario e scorte minime. Le vendite on line e al banco scaricano in automatico.">
+      <PageTitle title="Magazzino" subtitle="Carichi, scarichi, rettifiche, inventario e scorte minime. Le vendite online ed al banco scaricano in automatico.">
         <a href="/api/admin/stock/inventory?format=xlsx" className="btn-outline btn-sm"><Download size={14} /> Inventario Excel</a>
         <a href="/api/admin/stock/inventory?format=pdf" className="btn-outline btn-sm"><Download size={14} /> PDF</a>
       </PageTitle>
@@ -149,7 +149,7 @@ export function Orders() {
   const [counter, setCounter] = useState(false);
   return (
     <div>
-      <PageTitle title="Ordini" subtitle="Ordini on line e vendite in negozio. Il magazzino si scarica quando l'ordine è pagato o preso in carico.">
+      <PageTitle title="Ordini" subtitle="Ordini online e vendite in negozio. Il magazzino si scarica quando l'ordine è pagato o preso in carico.">
         <button className="btn-primary btn-sm" onClick={() => setCounter(true)}><Plus size={14} /> Vendita in negozio</button>
       </PageTitle>
       {counter && <CounterSale onClose={() => setCounter(false)} />}
@@ -158,7 +158,7 @@ export function Orders() {
         <div className="space-y-3">{data.map((o) => (
           <div key={o.id} className="card">
             <div className="flex flex-wrap items-start justify-between gap-3">
-              <div><p className="font-bold">{o.channel === "negozio" ? "Vendita in negozio" : "Ordine on line"} #{o.id} · {fmtDateTime(o.createdAt)}</p><p className="text-sm text-slate-600">{o.customer}{o.phone ? ` · ${o.phone}` : ""}{o.email ? ` · ${o.email}` : ""}</p></div>
+              <div><p className="font-bold">{o.channel === "negozio" ? "Vendita in negozio" : "Ordine online"} #{o.id} · {fmtDateTime(o.createdAt)}</p><p className="text-sm text-slate-600">{o.customer}{o.phone ? ` · ${o.phone}` : ""}{o.email ? ` · ${o.email}` : ""}</p></div>
               <select className="input w-48" value={o.status} onChange={(e) => setSt(o.id, e.target.value)}>{Object.entries(ORDER_STATUS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select>
             </div>
             <ul className="mt-2 text-sm">{o.items.map((i: any) => <li key={i.id}>{i.qty} × {i.name} – {euro(i.unitPriceCents * i.qty)}</li>)}</ul>

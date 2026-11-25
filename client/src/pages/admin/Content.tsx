@@ -8,7 +8,7 @@ import { api, get, put, del, post } from "@/lib/api";
 import { fmtDateTime, fmtDay } from "@/lib/format";
 import { SIZES, SIZE_LABELS } from "@shared/constants";
 
-export function UploadButton({ label = "Carica immagine", onUploaded }: { label?: string; onUploaded?: (url: string) => void }) {
+export function UploadButton({ label = "Carica immagine", onUploaded, accept = "image/jpeg,image/png,image/webp,application/pdf" }: { label?: string; onUploaded?: (url: string) => void; accept?: string }) {
   const ref = useRef<HTMLInputElement>(null);
   const toast = useToast();
   const qc = useQueryClient();
@@ -25,7 +25,7 @@ export function UploadButton({ label = "Carica immagine", onUploaded }: { label?
   };
   return (
     <>
-      <input ref={ref} type="file" accept="image/jpeg,image/png,image/webp,application/pdf" className="hidden" onChange={(e) => e.target.files?.[0] && pick(e.target.files[0])} />
+      <input ref={ref} type="file" accept={accept} className="hidden" onChange={(e) => e.target.files?.[0] && pick(e.target.files[0])} />
       <button type="button" className="btn-outline btn-sm" disabled={busy} onClick={() => ref.current?.click()}><Upload size={14} /> {busy ? "Caricamento…" : label}</button>
     </>
   );
@@ -77,6 +77,7 @@ export function SettingsForm({ section, fields, title, intro }: { section: strin
       }
       await put(`/api/admin/settings/${section}`, body); toast("Impostazioni salvate"); setF(null);
       qc.invalidateQueries({ queryKey: ["admin-settings"] }); qc.invalidateQueries({ queryKey: ["public-settings"] });
+      if (section === "reviews") qc.invalidateQueries({ queryKey: ["public-reviews"] });
     } catch (e) { setErr(e); }
   };
   return (
@@ -95,7 +96,7 @@ export function SettingsForm({ section, fields, title, intro }: { section: strin
                   {cur[x.key] && <button type="button" className="btn-ghost btn-sm" onClick={() => setF({ ...cur, [x.key]: "" })}>Ripristina</button>}
                 </div>
               )
-              : <input className="input" type={x.type === "number" ? "number" : "text"} value={x.type === "list" && Array.isArray(cur[x.key]) ? cur[x.key].join(", ") : cur[x.key] ?? ""} onChange={(e) => setF({ ...cur, [x.key]: e.target.value })} />}
+              : <input className="input" type={x.type === "number" ? "number" : "text"} step={x.type === "number" ? "any" : undefined} value={x.type === "list" && Array.isArray(cur[x.key]) ? cur[x.key].join(", ") : cur[x.key] ?? ""} onChange={(e) => setF({ ...cur, [x.key]: e.target.value })} />}
           </Field>
         ))}
       </div>
@@ -103,6 +104,33 @@ export function SettingsForm({ section, fields, title, intro }: { section: strin
       <div className="flex gap-2"><button className="btn-primary" onClick={save} disabled={!f}>Salva</button>{f && <button className="btn-ghost" onClick={() => setF(null)}>Annulla modifiche</button>}</div>
     </div>
   );
+}
+
+function ReviewsGallery() {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  const { data } = useQuery<any>({ queryKey: ["admin-settings"], queryFn: () => get("/api/admin/settings") });
+  const images: { url: string; alt: string }[] = data?.reviews?.images || [];
+  const save = async (next: typeof images) => {
+    setBusy(true);
+    try {
+      await put("/api/admin/settings/reviews", { images: next });
+      await qc.invalidateQueries({ queryKey: ["admin-settings"] });
+      qc.invalidateQueries({ queryKey: ["public-reviews"] });
+      toast("Galleria aggiornata");
+    } catch (error: any) { toast(error.message, "err"); }
+    finally { setBusy(false); }
+  };
+  return <div className="card space-y-4">
+    <h3 className="text-lg font-bold">Screenshot delle recensioni</h3>
+    <p className="text-sm text-slate-600">Carica screenshot autentici, verificando i diritti ed oscurando eventuali dati personali non necessari. Massimo 24 immagini. I file rimangono gestibili anche nella libreria immagini.</p>
+    {!busy && images.length < 24 && <UploadButton label="Aggiungi screenshot" accept="image/jpeg,image/png,image/webp" onUploaded={url => { if (images.some(image => image.url === url)) return; void save([...images, { url, alt: "Recensione di un cliente di Dog's Planet" }]); }} />}
+    <div className="grid gap-4 sm:grid-cols-3">{images.map((image, index) => <div key={image.url} className="rounded-xl border p-3">
+      <img src={image.url} alt={image.alt} className="h-40 w-full object-contain" />
+      <button type="button" disabled={busy} className="mt-2 min-h-11 text-sm font-semibold text-red-700" onClick={() => void save(images.filter((_, i) => i !== index))}>Rimuovi dalla galleria</button>
+    </div>)}</div>
+  </div>;
 }
 
 export function Content() {
@@ -145,8 +173,16 @@ export function Content() {
           { key: "heroTitle", label: "Titolo principale" }, { key: "announcement", label: "Avviso in cima al sito (vuoto = nascosto)" },
           { key: "heroText", label: "Testo di presentazione", type: "textarea" },
           { key: "socialInstagram", label: "Link Instagram" }, { key: "socialFacebook", label: "Link Facebook" },
-          { key: "shopEnabled", label: "Shop on line attivo (se disattivo il sito mostra “Pet Shop – In arrivo”)", type: "checkbox" }, { key: "boardingEnabled", label: "Richieste pensione attive", type: "checkbox" },
+          { key: "socialYoutube", label: "Link YouTube" }, { key: "socialTiktok", label: "Link TikTok" },
+          { key: "shopEnabled", label: "Shop online attivo (se disattivo mostra “#LaPappadiPoppy – Coming Soon”)", type: "checkbox" }, { key: "boardingEnabled", label: "Richieste pensione attive", type: "checkbox" },
         ]} />
+        <SettingsForm section="reviews" title="Chi siamo — recensioni Google" intro={<p>Inserisci solo dati verificati, non gli esempi del documento. Senza chiave si usano questi valori manuali. Per l’automatismo futuro servono un Place ID corretto e GOOGLE_PLACES_API_KEY nei Secrets, con il servizio dedicato autorizzato.</p>} fields={[
+          { key: "count", label: "Numero reale di recensioni", type: "number" },
+          { key: "rating", label: "Voto medio reale da 0 a 5", type: "number" },
+          { key: "googleUrl", label: "Link HTTPS alla scheda Google" },
+          { key: "googlePlaceId", label: "Google Place ID (opzionale)" },
+        ]} />
+        <ReviewsGallery />
         <SettingsForm section="brand" title="Banner promozionale in home" fields={[
           { key: "bannerActive", label: "Banner attivo", type: "checkbox" }, { key: "bannerText", label: "Testo del banner" },
           { key: "bannerUrl", label: "Link del banner (es. /servizi)" }, { key: "bannerImageUrl", label: "Immagine del banner", type: "image" },

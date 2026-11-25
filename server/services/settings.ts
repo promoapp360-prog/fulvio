@@ -4,8 +4,12 @@ import { settings } from "../../shared/schema";
 import { sql } from "drizzle-orm";
 import { BUSINESS } from "../../shared/constants";
 import { LEGAL_DEFAULTS } from "../../shared/legal";
+import { PUBLIC_COPY } from "../../shared/public-copy";
 
 export const DEFAULT_SETTINGS = {
+  pricing: {
+    hourlyRateCents: 5000,
+  },
   booking: {
     slotMinutes: 30,          // griglia: 15, 30, 45, 60 o personalizzata
     bufferMin: 0,             // intervallo tra appuntamenti
@@ -59,13 +63,22 @@ export const DEFAULT_SETTINGS = {
     categories: ["Lavaggio", "Asciugatura", "Ricarica tessera"],
   },
   site: {
-    heroTitle: "Benvenuto da Dog's Planet!",
-    heroText: "Toelettatura professionale a Cernusco sul Naviglio: cura, esperienza e tanto amore per il tuo cane.",
+    heroTitle: PUBLIC_COPY.heroTitle,
+    heroText: PUBLIC_COPY.heroText,
     announcement: "",
     shopEnabled: false,
     boardingEnabled: true,
     socialFacebook: "",
     socialInstagram: "",
+    socialYoutube: "",
+    socialTiktok: "",
+  },
+  reviews: {
+    count: null as number | null,
+    rating: null as number | null,
+    googleUrl: "",
+    googlePlaceId: "",
+    images: [] as { url: string; alt: string }[],
   },
   seo: {
     defaultTitle: "Dog's Planet – Toelettatura cani a Cernusco sul Naviglio",
@@ -88,6 +101,7 @@ export type Settings = typeof DEFAULT_SETTINGS;
 export type SettingsKey = keyof Settings;
 
 let cache: Settings | null = null;
+export function clearSettingsCache() { cache = null; }
 
 export async function getSettings(): Promise<Settings> {
   if (cache) return cache;
@@ -114,6 +128,7 @@ export async function publicSettings() {
   const s = await getSettings();
   return {
     business: s.business,
+    pricing: { hourlyRateCents: s.pricing.hourlyRateCents },
     selfservice: s.selfservice,
     site: s.site,
     seo: s.seo,

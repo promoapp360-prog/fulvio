@@ -4,6 +4,7 @@ import { PublicLayout } from "@/components/Layout";
 import { ToastProvider, Spinner } from "@/components/ui";
 import CmsPage from "@/components/CmsPage";
 import Home from "@/pages/public/Home";
+import AboutPage from "@/pages/public/About";
 import { ServiziPage, ToelettaturaPage, SelfServicePage, PensionePage, FidelityPage, ContattiPage, NotFound } from "@/pages/public/Pages";
 import { LoginPage, RegisterPage, ForgotPage, ResetPage, ForceChangePasswordPage, VerifyEmailPage } from "@/pages/public/Auth";
 import { useMe } from "@/lib/auth";
@@ -26,7 +27,7 @@ export default function App() {
           <PublicLayout>
             <Switch>
               <Route path="/" component={Home} />
-              <Route path="/chi-siamo"><CmsPage slug="chi-siamo" mascot="welcome" fallbackTitle="Chi siamo" /></Route>
+              <Route path="/chi-siamo" component={AboutPage} />
               <Route path="/toelettatura" component={ToelettaturaPage} />
               <Route path="/servizi" component={ServiziPage} />
               <Route path="/richiedi-prenotazione" component={BookingPage} />

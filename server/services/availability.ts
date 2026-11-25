@@ -2,35 +2,69 @@
 import { and, eq, gte, inArray, lte, lt, gt, isNull, isNotNull, or, ne, sql } from "drizzle-orm";
 import { db } from "../db";
 import {
-  appointments, operatorAbsences, operatorServices, operatorShifts, operators, services, serviceVariants, serviceSupplements,
+  appointments, operatorAbsences, operatorServices, operatorShifts, operators, services, serviceVariants, serviceSupplements, servicePricingRules,
   BLOCKING_STATUSES, guestBookings, type Dog,
 } from "../../shared/schema";
 import { getSettings } from "./settings";
+import { selectServicePricingRule } from "../../shared/service-pricing";
 import { addDays, dateToRome, romeToDate, toMin, fromMin, weekdayOf } from "../time";
 import { subtractInterval as subtract, shiftWindows, freeSlots, type Interval } from "../logic";
 
 export class SlotError extends Error { status = 409; }
 
-/** Durata e prezzo stimato di un servizio per un cane (varianti per taglia + supplementi automatici). */
-export async function quote(serviceId: number, dog?: Pick<Dog, "size" | "coatKnots" | "coatShedding" | "aggressive"> | null, tx: any = db) {
+/** Durata e stima da listino. I supplementi non incidono mai senza conferma del salone. */
+export async function quote(serviceId: number, dog?: (Pick<Dog, "size" | "coatKnots" | "coatShedding" | "aggressive"> & Partial<Pick<Dog, "species" | "coatType" | "coatLength">>) | null, tx: any = db) {
   const [svc] = await tx.select().from(services).where(eq(services.id, serviceId));
   if (!svc || !svc.active) throw new SlotError("Servizio non disponibile");
-  let duration = svc.durationMin; let price: number | null = svc.priceCents;
+  let duration = svc.durationMin;
+  let pricingType = svc.pricingType || (svc.priceFrom ? "da" : "fisso");
+  let price: number | null = svc.priceCents;
+  let priceMax: number | null = svc.priceMaxCents ?? null;
+  let priceRuleId: number | null = null;
+  let percentageBasisPoints: number | null = null;
+  let hasPriceRule = false;
   const supplements: { name: string; priceCents: number; extraMin: number }[] = [];
   if (dog) {
-    const [v] = await tx.select().from(serviceVariants).where(and(eq(serviceVariants.serviceId, serviceId), eq(serviceVariants.size, dog.size)));
-    if (v) { if (v.durationMin) duration = v.durationMin; if (v.priceCents != null) price = v.priceCents; }
+    const rules = await tx.select().from(servicePricingRules).where(and(eq(servicePricingRules.serviceId, serviceId), eq(servicePricingRules.active, true)));
+    const rule: any = selectServicePricingRule<any>(rules, dog);
+    if (rule) {
+      hasPriceRule = true;
+      priceRuleId = rule.id ?? null; pricingType = rule.pricingType;
+      if (rule.priceCents != null) price = rule.priceCents;
+      if (rule.priceMaxCents != null) priceMax = rule.priceMaxCents;
+      if (rule.percentageBasisPoints != null) percentageBasisPoints = rule.percentageBasisPoints;
+      if (rule.durationMin != null) duration = rule.durationMin;
+    }
+    if (!hasPriceRule) {
+      const [v] = await tx.select().from(serviceVariants).where(and(eq(serviceVariants.serviceId, serviceId), eq(serviceVariants.size, dog.size)));
+      if (v) { if (v.durationMin) duration = v.durationMin; if (v.priceCents != null) price = v.priceCents; }
+    }
     const sup = await tx.select().from(serviceSupplements)
       .where(and(eq(serviceSupplements.active, true), or(eq(serviceSupplements.serviceId, serviceId), isNull(serviceSupplements.serviceId))));
     for (const s of sup) {
       const applies = (s.condition === "nodi" && dog.coatKnots) || (s.condition === "muta" && dog.coatShedding) || (s.condition === "aggressivo" && dog.aggressive);
       if (applies) {
+        // Proposta informativa: nessun costo/minuto viene aggiunto senza conferma esplicita dell'operatore.
         supplements.push({ name: s.name, priceCents: s.priceCents, extraMin: s.extraMin });
-        duration += s.extraMin; if (price != null) price += s.priceCents;
       }
     }
   }
-  return { service: svc, durationMin: duration, estimatedPriceCents: price, supplements };
+  if (pricingType === "orario") {
+    const settings = await getSettings();
+    price = Math.round((settings.pricing?.hourlyRateCents ?? 5000) * duration / 60);
+  }
+  const listPriceCents = price;
+  const estimatedPriceCents = pricingType === "fascia" || pricingType === "percentuale" || pricingType === "preventivo" ? null : price;
+  return {
+    service: svc, durationMin: duration, pricingType, priceCents: listPriceCents, priceMaxCents: priceMax,
+    estimatedPriceCents, supplements, priceRuleId,
+    priceSnapshot: {
+      serviceId: svc.id, name: svc.name, category: svc.category, species: svc.species, pricingType,
+      priceCents: listPriceCents, priceMaxCents: priceMax, percentageBasisPoints, durationMin: duration, priceRuleId,
+      size: dog?.size ?? null, coatType: dog?.coatType ?? null, coatLength: dog?.coatLength ?? null,
+      priceFrom: pricingType === "da", supplements: [],
+    },
+  };
 }
 
 /** Operatori attivi abilitati al servizio. */

@@ -29,6 +29,7 @@ export async function createGuestBooking(input: GuestBookingInput, meta: Meta, p
   const dogForQuote={
     size:sizeFromWeight(weight),coatKnots:input.coatConditions.includes("Annodato"),
     coatShedding:input.coatConditions.includes("In muta/perde pelo"),aggressive:false,
+    species:input.species,coatType:input.coatType.toLocaleLowerCase("it-IT"),coatLength:input.coatLength.toLocaleLowerCase("it-IT"),
   };
   const quote=await quoteServices(input.serviceIds,dogForQuote);
   const ops=input.operatorId?quote.operators.filter(o=>o.id===input.operatorId):quote.operators;
@@ -36,12 +37,12 @@ export async function createGuestBooking(input: GuestBookingInput, meta: Meta, p
   const phoneNorm=normalizePhone(input.phone);
   if(phoneNorm.length<8) throw new HttpError(400,"Inserisci un numero di telefono valido.");
   if(!input.operatorId&&!settings.booking.allowAnyOperator)throw new HttpError(400,"Seleziona un operatore per questa richiesta.");
-  const breed=input.breed==="Altra razza"?input.breedOther.trim():input.breed;
+  const breed=input.species==="gatto"?(input.breed.trim()||"Gatto"):input.breed==="Altra razza"?input.breedOther.trim():input.breed;
   const payloadHash=crypto.createHash("sha256").update(JSON.stringify({...input,breed,photoHash})).digest("hex");
   const emailNormalized=input.email.trim().toLowerCase();
   const phoneNormalized=phoneNorm;
   const names=[cleanName(input.firstName),cleanName(input.lastName)];
-  const dedupeKey=hmac([emailNormalized,phoneNormalized,names[0],names[1],cleanName(input.dogName),input.date,input.time,[...input.serviceIds].sort((a,b)=>a-b).join(",")].join("|"));
+  const dedupeKey=hmac([emailNormalized,phoneNormalized,names[0],names[1],input.species,cleanName(input.dogName),input.date,input.time,[...input.serviceIds].sort((a,b)=>a-b).join(",")].join("|"));
   const token=crypto.randomBytes(32).toString("hex");
   let lastConflict:Error|null=null;
   for(const op of ops){
@@ -85,10 +86,10 @@ export async function createGuestBooking(input: GuestBookingInput, meta: Meta, p
           }).where(eq(guestCustomers.id,customer.id));
         }
 
-        const exactDogs=await tx.select().from(guestDogs).where(and(eq(guestDogs.guestCustomerId,customer.id),eq(guestDogs.name,input.dogName),eq(guestDogs.breed,breed)));
+        const exactDogs=await tx.select().from(guestDogs).where(and(eq(guestDogs.guestCustomerId,customer.id),eq(guestDogs.name,input.dogName),eq(guestDogs.species,input.species),eq(guestDogs.breed,breed)));
         let dog=exactDogs.length===1?exactDogs[0]:null;
         const dogData={
-          guestCustomerId:customer.id,name:input.dogName,breed,size:dogForQuote.size,weightKg:String(weight),
+          guestCustomerId:customer.id,name:input.dogName,species:input.species,breed,size:dogForQuote.size,weightKg:String(weight),
           ageYears:input.ageYears===null?null:Number(input.ageYears),ageMonths:input.ageMonths===null?null:Number(input.ageMonths),
           birthDate:input.birthDate||null,coatType:input.coatType,coatLength:input.coatLength,
           coatConditions:input.coatConditions,coatNotes:input.coatNotes||null,photoKey:photoKey??dog?.photoKey??null,updatedAt:new Date(),
@@ -107,7 +108,9 @@ export async function createGuestBooking(input: GuestBookingInput, meta: Meta, p
           firstName:input.firstName,lastName:input.lastName,email:input.email,phone:input.phone,dogName:input.dogName,breed,
           serviceId:quote.serviceIds[0],requestedServiceIds:quote.serviceIds,operatorId:op.id,
           startAt:start,endAt:new Date(start.getTime()+quote.durationMin*60_000),durationMin:quote.durationMin,
+          estimatedPriceCents:quote.estimatedPriceCents,
           status:"richiesta",notes:input.notes||null,alternativeAvailability:input.alternativeAvailability||null,
+          servicePriceSnapshot:quote.servicePriceSnapshot,
           privacyAcknowledgedAt:new Date(),privacyVersion:meta.privacyVersion,privacyProof:"presa_visione_informativa_privacy",
           privacyIp:meta.ip,privacyUserAgent:meta.userAgent,marketingConsent:input.marketing,
           marketingConsentAt:input.marketing?new Date():null,marketingProof:input.marketing?"consenso_marketing_esplicito":null,
@@ -115,7 +118,7 @@ export async function createGuestBooking(input: GuestBookingInput, meta: Meta, p
           requestKey:input.requestKey,payloadHash,dedupeKey,
         }).returning();
         await tx.insert(guestBookingEvents).values({bookingId:row.id,action:"richiesta_ospite_creata",data:{
-          serviceIds:quote.serviceIds,durationMin:quote.durationMin,privacyVersion:meta.privacyVersion,
+          serviceIds:quote.serviceIds,durationMin:quote.durationMin,servicePriceSnapshot:quote.servicePriceSnapshot,privacyVersion:meta.privacyVersion,
           privacyProof:"presa_visione_informativa_privacy",marketingConsent:input.marketing,manualReview:!!reason,
           ...(input.marketing?{marketingProof:"consenso_marketing_esplicito"}:{}),
         }});
@@ -157,7 +160,7 @@ export async function guestRequestStatus(requestId:number,token:string){
   return row;
 }
 
-export async function actOnGuestBooking(requestIdRaw:string, actorId:number, input:{action:"conferma"|"rifiuta"|"proponi";date?:string;time?:string;operatorId?:number|null;reason?:string|null}) {
+export async function actOnGuestBooking(requestIdRaw:string, actorId:number, input:{action:"conferma"|"rifiuta"|"proponi";date?:string;time?:string;operatorId?:number|null;finalPriceCents?:number|null;reason?:string|null}) {
   const requestId=id(requestIdRaw);
   const [row]=await db.select().from(guestBookings).where(eq(guestBookings.id,requestId));
   if(!row) throw new HttpError(404,"Richiesta non trovata.");
@@ -165,7 +168,8 @@ export async function actOnGuestBooking(requestIdRaw:string, actorId:number, inp
   const start=input.date&&input.time?romeToDate(input.date,input.time):row.proposedStartAt||row.startAt;
   if(input.action==="proponi"&&(!input.date||!input.time)) throw new HttpError(400,"Indica la data e l’ora da proporre.");
   const [dog]=row.guestDogId?await db.select().from(guestDogs).where(eq(guestDogs.id,row.guestDogId)):[];
-  const doglike={size:(dog?.size||"media") as any,coatKnots:dog?.coatConditions.includes("Annodato")||false,coatShedding:dog?.coatConditions.includes("In muta/perde pelo")||false,aggressive:false};
+  const doglike={size:(dog?.size||"media") as any,coatKnots:dog?.coatConditions.includes("Annodato")||false,coatShedding:dog?.coatConditions.includes("In muta/perde pelo")||false,aggressive:false,
+    species:dog?.species||"cane",coatType:dog?.coatType||undefined,coatLength:dog?.coatLength||undefined};
   const serviceIds=row.requestedServiceIds?.length?row.requestedServiceIds:[row.serviceId];
   const quote=await quoteServices(serviceIds,doglike);
   const operatorId=input.operatorId??row.proposedOperatorId??row.operatorId;
@@ -177,11 +181,12 @@ export async function actOnGuestBooking(requestIdRaw:string, actorId:number, inp
         status:input.action==="rifiuta"?"rifiutata":input.action==="proponi"?"proposta":"confermata",
         updatedAt:new Date(),
         ...(input.action==="proponi"?{proposedStartAt:start,proposedOperatorId:operatorId}:{proposedStartAt:null,proposedOperatorId:null}),
-        ...(input.action==="conferma"?{startAt:start,operatorId,endAt:new Date(start.getTime()+quote.durationMin*60_000),durationMin:quote.durationMin}:{}),
+        ...(input.action==="conferma"?{startAt:start,operatorId,endAt:new Date(start.getTime()+quote.durationMin*60_000),durationMin:quote.durationMin,
+          ...(input.finalPriceCents!==undefined?{finalPriceCents:input.finalPriceCents}:{})}:{}),
         adminMessage:input.reason||null,
       };
       await tx.update(guestBookings).set(patch as any).where(eq(guestBookings.id,row.id));
-      await tx.insert(guestBookingEvents).values({bookingId:row.id,actorId,action:`ospite_${input.action}`,data:{reason:input.reason||null,startAt:start.toISOString(),operatorId}});
+       await tx.insert(guestBookingEvents).values({bookingId:row.id,actorId,action:`ospite_${input.action}`,data:{reason:input.reason||null,startAt:start.toISOString(),operatorId,finalPriceCents:input.finalPriceCents??null}});
     });
   }else{
     await db.transaction(async tx=>{
@@ -192,7 +197,7 @@ export async function actOnGuestBooking(requestIdRaw:string, actorId:number, inp
   const [updated]=await db.select().from(guestBookings).where(eq(guestBookings.id,row.id));
   const when=fmtRome(updated.proposedStartAt||updated.startAt);
   const subject=input.action==="conferma"?"Richiesta approvata – Dog’s Planet":input.action==="rifiuta"?"Aggiornamento sulla tua richiesta – Dog’s Planet":"Dog’s Planet ti propone un nuovo orario";
-  const body=input.action==="conferma"?`La tua richiesta è stata approvata per ${when}.`
+  const body=input.action==="conferma"?`La tua richiesta è stata approvata per ${when}.${updated.finalPriceCents!=null?` Prezzo concordato: ${(updated.finalPriceCents/100).toLocaleString("it-IT",{style:"currency",currency:"EUR"} )}.`:""}`
     :input.action==="rifiuta"?`Non possiamo accogliere la richiesta.${input.reason?` ${input.reason}`:""}`
     :`Ti proponiamo ${when}.${input.reason?` ${input.reason}`:""}`;
   await sendEmail(row.email,subject,emailLayout(subject,p(`Ciao ${row.firstName}, ${body}`)+p("Questa comunicazione riguarda la tua richiesta di prenotazione.")),"guest_booking_update");

@@ -65,6 +65,7 @@ export const dogs = pgTable("dogs", {
   id: serial("id").primaryKey(),
   ownerId: integer("owner_id").notNull().references(() => users.id),
   name: varchar("name", { length: 80 }).notNull(),
+  species: varchar("species", { length: 12 }).notNull().default("cane"),
   breed: varchar("breed", { length: 120 }),
   size: varchar("size", { length: 10 }).notNull().default("media"),
   weightKg: numeric("weight_kg", { precision: 5, scale: 2 }),
@@ -105,6 +106,10 @@ export const services = pgTable("services", {
   description: text("description"),
   priceCents: integer("price_cents"),
   priceFrom: boolean("price_from").notNull().default(true),
+  pricingType: varchar("pricing_type", { length: 20 }).notNull().default("da"),
+  priceMaxCents: integer("price_max_cents"),
+  species: varchar("species", { length: 12 }).notNull().default("cane"),
+  imageUrl: text("image_url"),
   durationMin: integer("duration_min").notNull().default(60),
   bookable: boolean("bookable").notNull().default(true),
   active: boolean("active").notNull().default(true),
@@ -112,6 +117,32 @@ export const services = pgTable("services", {
   sortOrder: integer("sort_order").notNull().default(0),
   earnsPoints: boolean("earns_points").notNull().default(true),
   createdAt: ts("created_at").notNull().defaultNow(),
+});
+
+export const serviceCategories = pgTable("service_categories", {
+  id: serial("id").primaryKey(),
+  name: varchar("name", { length: 80 }).notNull().unique(),
+  sortOrder: integer("sort_order").notNull().default(0),
+  active: boolean("active").notNull().default(true),
+  visible: boolean("visible").notNull().default(true),
+  archivedAt: ts("archived_at"),
+  createdAt: ts("created_at").notNull().defaultNow(),
+});
+
+/** Regole di prezzo modificabili per taglia e caratteristiche del mantello. */
+export const servicePricingRules = pgTable("service_pricing_rules", {
+  id: serial("id").primaryKey(),
+  serviceId: integer("service_id").notNull().references(() => services.id),
+  size: varchar("size", { length: 10 }),
+  coatType: varchar("coat_type", { length: 40 }),
+  coatLength: varchar("coat_length", { length: 20 }),
+  pricingType: varchar("pricing_type", { length: 20 }).notNull().default("fisso"),
+  priceCents: integer("price_cents"),
+  priceMaxCents: integer("price_max_cents"),
+  percentageBasisPoints: integer("percentage_basis_points"),
+  durationMin: integer("duration_min"),
+  active: boolean("active").notNull().default(true),
+  sortOrder: integer("sort_order").notNull().default(0),
 });
 
 export const serviceVariants = pgTable("service_variants", {
@@ -127,8 +158,13 @@ export const serviceSupplements = pgTable("service_supplements", {
   serviceId: integer("service_id").references(() => services.id),
   name: varchar("name", { length: 120 }).notNull(),
   condition: varchar("condition", { length: 20 }).notNull().default("manuale"),
+  conditionLabel: varchar("condition_label", { length: 80 }),
+  description: text("description"),
   priceCents: integer("price_cents").notNull().default(0),
+  pricingType: varchar("pricing_type", { length: 20 }).notNull().default("fisso"),
+  percentageBasisPoints: integer("percentage_basis_points"),
   extraMin: integer("extra_min").notNull().default(0),
+  requiresConfirmation: boolean("requires_confirmation").notNull().default(true),
   active: boolean("active").notNull().default(true),
 });
 
@@ -199,6 +235,7 @@ export const appointments = pgTable("appointments", {
   status: varchar("status", { length: 20 }).$type<AppointmentStatus>().notNull().default("richiesta"),
   customerNotes: text("customer_notes"),
   requestedServiceIds: jsonb("requested_service_ids").$type<number[]>().notNull().default([]),
+  servicePriceSnapshot: jsonb("service_price_snapshot").$type<Record<string, unknown>[]>().notNull().default([]),
   alternativeAvailability: varchar("alternative_availability", {length:500}),
   privacyAcknowledgedAt: ts("privacy_acknowledged_at"),
   privacyVersion: varchar("privacy_version",{length:120}),
@@ -238,6 +275,8 @@ export const guestBookings = pgTable("guest_bookings", {
   serviceId: integer("service_id").notNull().references(()=>services.id),
   operatorId: integer("operator_id").notNull().references(()=>operators.id),
   startAt: ts("start_at").notNull(), endAt: ts("end_at").notNull(), durationMin: integer("duration_min").notNull(),
+  estimatedPriceCents: integer("estimated_price_cents"),
+  finalPriceCents: integer("final_price_cents"),
   status: varchar("status",{length:20}).notNull().default("richiesta"),
   notes: text("notes"), adminMessage: text("admin_message"),
   proposedStartAt: ts("proposed_start_at"), proposedOperatorId: integer("proposed_operator_id").references(()=>operators.id),
@@ -248,6 +287,7 @@ export const guestBookings = pgTable("guest_bookings", {
   guestCustomerId: integer("guest_customer_id"),
   guestDogId: integer("guest_dog_id"),
   requestedServiceIds: jsonb("requested_service_ids").$type<number[]>().notNull().default([]),
+  servicePriceSnapshot: jsonb("service_price_snapshot").$type<Record<string, unknown>[]>().notNull().default([]),
   alternativeAvailability: varchar("alternative_availability",{length:500}),
   privacyProof: varchar("privacy_proof",{length:120}),
   privacyIp: varchar("privacy_ip",{length:64}),
@@ -336,7 +376,7 @@ export const guestCustomers = pgTable("guest_customers", {
 });
 export const guestDogs = pgTable("guest_dogs", {
   id: serial("id").primaryKey(), guestCustomerId: integer("guest_customer_id").notNull().references(()=>guestCustomers.id),
-  name: varchar("name",{length:80}).notNull(), breed: varchar("breed",{length:120}).notNull(),
+  name: varchar("name",{length:80}).notNull(), species: varchar("species",{length:12}).notNull().default("cane"), breed: varchar("breed",{length:120}).notNull(),
   size: varchar("size",{length:10}).notNull().default("media"),
   weightKg: numeric("weight_kg",{precision:5,scale:2}),
   ageYears: smallint("age_years"), ageMonths: smallint("age_months"), birthDate: date("birth_date"),

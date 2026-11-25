@@ -30,12 +30,12 @@ function PaymentsSettings() {
   return (
     <div className="card space-y-3">
       <h2 className="text-lg font-bold">Pagamenti appuntamenti</h2>
-      <p className="text-sm text-slate-600">Il pagamento si attiva solo <b>dopo</b> la conferma della richiesta. I dati delle carte non vengono mai salvati: il pagamento on line avviene sulla pagina sicura del provider (Stripe), configurabile con le chiavi nei Secrets di Replit. Finché le chiavi non sono impostate i pagamenti on line restano disattivati.</p>
+      <p className="text-sm text-slate-600">Il pagamento si attiva solo <b>dopo</b> la conferma della richiesta. I dati delle carte non vengono mai salvati: il pagamento online avviene sulla pagina sicura del provider (Stripe), configurabile con le chiavi nei Secrets di Replit. Finché le chiavi non sono impostate i pagamenti online restano disattivati.</p>
       <div className="grid gap-3 sm:grid-cols-2">
         <Field label="Modalità predefinita"><select className="input" disabled={me?.role !== "admin"} value={cur.defaultMode} onChange={(e) => setF({ ...cur, defaultMode: e.target.value })}>{Object.entries(PAYMENT_MODES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></Field>
         <Field label="Acconto predefinito (%)"><input type="number" className="input" value={cur.depositPercent} onChange={(e) => setF({ ...cur, depositPercent: e.target.value })} /></Field>
         <Field label="Altri metodi di pagamento personalizzati" hint="Separati da virgola, es. Buono regalo"><input className="input" value={Array.isArray(cur.customMethods) ? cur.customMethods.join(", ") : cur.customMethods} onChange={(e) => setF({ ...cur, customMethods: e.target.value })} /></Field>
-        <div className="pt-5"><Check checked={!!cur.onlineEnabled} onChange={(v) => setF({ ...cur, onlineEnabled: v })} label="Abilita pagamenti on line (richiede STRIPE_SECRET_KEY)" /></div>
+        <div className="pt-5"><Check checked={!!cur.onlineEnabled} onChange={(v) => setF({ ...cur, onlineEnabled: v })} label="Abilita pagamenti online (richiede STRIPE_SECRET_KEY)" /></div>
       </div>
       <ErrorBox error={err} />
       {me?.role === "admin" ? <button className="btn-primary" onClick={save}>Salva</button> : <p className="text-xs text-slate-500">Solo l'amministratore modifica i pagamenti.</p>}

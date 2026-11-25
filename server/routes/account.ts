@@ -65,7 +65,7 @@ r.get("/guest-records",h(async(req,res)=>{
   const rows=await db.select({booking:guestBookings,serviceName:services.name}).from(guestBookings)
     .innerJoin(services,eq(services.id,guestBookings.serviceId)).where(eq(guestBookings.claimedById,req.user!.id))
     .orderBy(desc(guestBookings.createdAt)).limit(100);
-  res.json(rows);
+  res.json(rows.map(row=>({...row,serviceName:row.booking.servicePriceSnapshot?.map((s:any)=>s.name).filter(Boolean).join(", ")||row.serviceName})));
 }));
 
 // ---------- profilo ----------
@@ -108,12 +108,13 @@ r.get("/export", h(async (req, res) => {
 // ---------- cani ----------
 const dogSchema = z.object({
   name: z.string().trim().min(1).max(80),
+  species: z.enum(["cane", "gatto"]).default("cane"),
   breed: zOptStr(120),
-  size: z.enum(["piccola", "media", "grande", "gigante"]),
+  size: z.enum(["mini", "piccola", "media", "grande", "gigante"]),
   weightKg: z.union([z.coerce.number().min(0).max(150), z.literal("").transform(() => null), z.null()]).optional().transform((v) => (v == null ? null : String(v))),
   birthDate: zOptDay, notes: zOptStr(2000),
   coatKnots: z.boolean().default(false), coatShedding: z.boolean().default(false), lastBath: zOptDay,
-  coatType: zOptStr(80), coatNotes: zOptStr(2000),
+  coatType: zOptStr(80), coatLength: zOptStr(20), coatNotes: zOptStr(2000),
   jointIssues: zOptStr(1000), dermatitis: zOptStr(1000), intolerances: zOptStr(1000), sensitivities: zOptStr(1000),
   aggressive: z.boolean().default(false), aggressiveNotes: zOptStr(1000), otherNeeds: zOptStr(1000), otherPets: zOptStr(1000),
   food: z.record(z.unknown()).default({}),
@@ -197,7 +198,7 @@ r.get("/appointments", h(async (req, res) => {
   const pays = ids.length ? await db.select().from(payments).where(and(inArray(payments.appointmentId, ids), eq(payments.status, "pagato"))) : [];
   res.json(rows.map(({ a, ...rest }) => {
     const paid = pays.filter((p) => p.appointmentId === a.id).reduce((s, p) => s + (p.kind === "rimborso" ? -p.amountCents : p.amountCents), 0);
-    return { ...a, ...rest, adminNotes: undefined, paidCents: paid };
+    return { ...a, ...rest, serviceName:a.servicePriceSnapshot?.map((s:any)=>s.name).filter(Boolean).join(", ")||rest.serviceName, adminNotes: undefined, paidCents: paid };
   }));
 }));
 

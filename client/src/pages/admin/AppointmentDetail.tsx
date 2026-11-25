@@ -8,6 +8,14 @@ import { useMe, can } from "@/lib/auth";
 import { fmtLong, fmtDateTime, romeParts } from "@/lib/format";
 import { euro, PAYMENT_MODES, PAYMENT_METHODS, PAYMENT_KINDS, SIZE_LABELS, STATUS_LABELS } from "@shared/constants";
 
+function priceSnapshotLabel(s: any) {
+  if (s.pricingType === "fascia" && s.priceCents != null && s.priceMaxCents != null) return `${euro(s.priceCents)}–${euro(s.priceMaxCents)}`;
+  if (s.pricingType === "percentuale" && s.percentageBasisPoints != null) return `+${s.percentageBasisPoints / 100}%`;
+  if (s.pricingType === "preventivo") return "da valutare";
+  if (s.priceCents != null) return `${s.pricingType === "da" ? "da " : ""}${euro(s.priceCents)}`;
+  return "prezzo da definire";
+}
+
 export function useAdminOperators() {
   return useQuery<any[]>({ queryKey: ["admin-operators"], queryFn: () => get("/api/admin/operators"), staleTime: 5 * 60_000 });
 }
@@ -69,7 +77,7 @@ export default function AppointmentDetail({ id, onClose }: { id: number | null; 
             </div>
           )}
           {(a.requestedServices?.length>1||a.privacyAcknowledgedAt)&&<div className="rounded-xl border border-slate-200 p-3 text-sm">
-            {a.requestedServices?.length>1&&<p><b>Servizi richiesti:</b> {a.requestedServices.map((s:any)=>s.name).join(", ")}</p>}
+            {a.requestedServices?.length>0&&<div><b>Prestazioni e prezzi al momento della richiesta:</b><ul className="mt-1 list-disc pl-5">{a.requestedServices.map((s:any)=><li key={s.id||s.name}>{s.name}{s.priceCents!=null||s.pricingType==="percentuale"||s.pricingType==="preventivo"?` · ${priceSnapshotLabel(s)}`:""} · {s.durationMin} min</li>)}</ul></div>}
             {a.privacyAcknowledgedAt&&<p><b>Presa visione privacy:</b> {fmtDateTime(a.privacyAcknowledgedAt)} · versione {a.privacyVersion||"—"} · prova {a.privacyAcknowledgementProof||"—"}</p>}
             {a.marketingConsent&&<p>Marketing facoltativo: selezionato il {fmtDateTime(a.marketingConsentAt)} · {a.marketingConsentProof}</p>}
           </div>}
@@ -99,7 +107,7 @@ export default function AppointmentDetail({ id, onClose }: { id: number | null; 
             {["richiesta", "in_valutazione", "proposta", "attesa_pagamento"].includes(a.status) && <button disabled={busy} className="btn-primary" onClick={() => action("conferma", { ...timing, finalPriceCents: f.finalPriceCents, paymentMode: f.paymentMode, depositCents: f.depositCents })}>Conferma</button>}
             {a.status === "richiesta" && <button disabled={busy} className="btn-outline" onClick={() => action("valuta")}>Metti in valutazione</button>}
             {["richiesta", "in_valutazione", "proposta", "confermata"].includes(a.status) && <button disabled={busy} className="btn-outline" onClick={() => action("proponi", timing)}>Proponi questo orario</button>}
-            {["richiesta", "in_valutazione", "confermata"].includes(a.status) && <button disabled={busy} className="btn-outline" onClick={() => action("richiedi_pagamento", { paymentMode: f.paymentMode === "saldo" ? "saldo" : "acconto", finalPriceCents: f.finalPriceCents, depositCents: f.depositCents })}>Richiedi pagamento on line</button>}
+            {["richiesta", "in_valutazione", "confermata"].includes(a.status) && <button disabled={busy} className="btn-outline" onClick={() => action("richiedi_pagamento", { paymentMode: f.paymentMode === "saldo" ? "saldo" : "acconto", finalPriceCents: f.finalPriceCents, depositCents: f.depositCents })}>Richiedi pagamento online</button>}
             {canEdit && ["confermata", "attesa_pagamento"].includes(a.status) && <button disabled={busy} className="btn-outline" onClick={() => run(() => patch(`/api/admin/appointments/${id}`, { ...timing, finalPriceCents: f.finalPriceCents, adminNotes: f.adminNotes, force: f.force || undefined }), "Appuntamento aggiornato")}>Salva modifiche</button>}
             {["confermata", "attesa_pagamento"].includes(a.status) && <button disabled={busy} className="btn-navy" onClick={() => action("completa", { finalPriceCents: f.finalPriceCents, treatmentNotes: f.treatmentNotes || null })}>Completato</button>}
             {["confermata", "attesa_pagamento"].includes(a.status) && <button disabled={busy} className="btn-outline" onClick={() => confirm("Registrare l'assenza del cliente?") && action("assente", { reason: f.cancelReason || "Cliente non presentato" })}>Cliente assente</button>}

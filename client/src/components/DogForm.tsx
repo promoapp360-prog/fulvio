@@ -5,8 +5,8 @@ import { get } from "@/lib/api";
 import { SIZES, SIZE_LABELS } from "@shared/constants";
 
 export const emptyDog = {
-  name: "", breed: "", size: "media", weightKg: "", birthDate: "", notes: "",
-  coatKnots: false, coatShedding: false, lastBath: "", coatType: "", coatNotes: "",
+  name: "", species: "cane", breed: "", size: "media", weightKg: "", birthDate: "", notes: "",
+  coatKnots: false, coatShedding: false, lastBath: "", coatType: "", coatLength: "", coatNotes: "",
   jointIssues: "", dermatitis: "", intolerances: "", sensitivities: "", aggressive: false, aggressiveNotes: "", otherNeeds: "", otherPets: "",
   food: {} as Record<string, any>, customFields: {} as Record<string, any>,
 };
@@ -60,6 +60,7 @@ export default function DogForm({ initial, onSubmit, onCancel, fieldsUrl = "/api
     <form onSubmit={submit} className="space-y-4">
       <Section title="Dati principali">
         <Field label="Nome *"><input className="input" required value={d.name} onChange={set("name")} /></Field>
+        <Field label="Specie *"><select className="input" value={d.species || "cane"} onChange={set("species")}><option value="cane">Cane</option><option value="gatto">Gatto</option></select></Field>
         <Field label="Razza"><input className="input" value={d.breed || ""} onChange={set("breed")} /></Field>
         <Field label="Taglia *"><select className="input" value={d.size} onChange={set("size")}>{SIZES.map((s) => <option key={s} value={s}>{SIZE_LABELS[s]}</option>)}</select></Field>
         <Field label="Peso (kg)"><input className="input" inputMode="decimal" value={d.weightKg ?? ""} onChange={set("weightKg")} /></Field>
@@ -71,6 +72,7 @@ export default function DogForm({ initial, onSubmit, onCancel, fieldsUrl = "/api
         <div className="flex flex-col gap-2 pt-5"><Check checked={d.coatKnots} onChange={set("coatKnots")} label="Presenza di nodi" /><Check checked={d.coatShedding} onChange={set("coatShedding")} label="In muta" /></div>
         <Field label="Ultimo bagno"><input type="date" className="input" value={d.lastBath || ""} onChange={set("lastBath")} /></Field>
         <Field label="Tipo di pelo"><input className="input" placeholder="Es. lungo, riccio, duro…" value={d.coatType || ""} onChange={set("coatType")} /></Field>
+        <Field label="Lunghezza del pelo"><select className="input" value={d.coatLength || ""} onChange={set("coatLength")}><option value="">Non indicata</option><option value="corto">Corto</option><option value="medio">Medio</option><option value="lungo">Lungo</option></select></Field>
         <Field label="Note sul mantello"><input className="input" value={d.coatNotes || ""} onChange={set("coatNotes")} /></Field>
         {custom("pelo")}
       </Section>

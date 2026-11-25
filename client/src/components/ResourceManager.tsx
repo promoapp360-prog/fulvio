@@ -13,9 +13,9 @@ export type FieldDef = {
 export type ColumnDef = { key: string; label: string; render?: (row: any) => React.ReactNode };
 
 /** Gestione generica (lista, ricerca, paginazione, crea/modifica/elimina) per le risorse del gestionale. */
-export default function ResourceManager({ title, subtitle, endpoint, fields, columns, defaults = {}, searchable, extraQuery = "", canDelete = true, toolbar, transform }: {
+export default function ResourceManager({ title, subtitle, endpoint, fields, columns, defaults = {}, searchable, extraQuery = "", canDelete = true, deletePrompt, toolbar, transform }: {
   title: string; subtitle?: string; endpoint: string; fields: FieldDef[]; columns: ColumnDef[]; defaults?: Record<string, any>;
-  searchable?: boolean; extraQuery?: string; canDelete?: boolean; toolbar?: React.ReactNode; transform?: (d: any) => any;
+  searchable?: boolean; extraQuery?: string; canDelete?: boolean; deletePrompt?: string; toolbar?: React.ReactNode; transform?: (d: any) => any;
 }) {
   const qc = useQueryClient();
   const toast = useToast();
@@ -46,7 +46,7 @@ export default function ResourceManager({ title, subtitle, endpoint, fields, col
     } catch (e) { setErr(e); }
   };
   const remove = async (row: any) => {
-    if (!confirm("Eliminare definitivamente questo elemento?")) return;
+    if (!confirm(deletePrompt || "Eliminare definitivamente questo elemento?")) return;
     try { await del(`${endpoint}/${row.id}`); toast("Eliminato"); qc.invalidateQueries({ queryKey: [endpoint] }); } catch (e: any) { toast(e.message, "err"); }
   };
   const input = (f: FieldDef) => {
@@ -87,7 +87,7 @@ export default function ResourceManager({ title, subtitle, endpoint, fields, col
                 {columns.map((c) => <td key={c.key}>{c.render ? c.render(r) : String(r[c.key] ?? "—")}</td>)}
                 <td className="whitespace-nowrap text-right">
                   <button className="btn-ghost btn-sm" onClick={() => { setErr(null); setEditing({ ...r }); }} aria-label="Modifica"><Pencil size={14} /></button>
-                  {canDelete && <button className="btn-ghost btn-sm text-red-600" onClick={() => remove(r)} aria-label="Elimina"><Trash2 size={14} /></button>}
+                  {canDelete && <button className="btn-ghost btn-sm text-red-600" onClick={() => remove(r)} aria-label={deletePrompt ? "Archivia" : "Elimina"}><Trash2 size={14} /></button>}
                 </td>
               </tr>
             ))}</tbody>

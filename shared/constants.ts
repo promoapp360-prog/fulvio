@@ -10,7 +10,7 @@ export const BUSINESS = {
   phone: "389 9082610",
   phoneIntl: "+393899082610",
   whatsapp: "393899082610",
-  email: "dogsplanetcernusco@gmail.com",
+  email: "info@dogsplanet.it",
   timezone: "Europe/Rome",
 };
 
@@ -74,8 +74,8 @@ export const STATUS_COLORS: Record<string, string> = {
   assente: "#7C2D12",
 };
 
-export const SIZES = ["piccola", "media", "grande", "gigante"] as const;
-export const SIZE_LABELS: Record<string, string> = { piccola: "Piccola", media: "Media", grande: "Grande", gigante: "Gigante" };
+export const SIZES = ["mini", "piccola", "media", "grande", "gigante"] as const;
+export const SIZE_LABELS: Record<string, string> = { mini: "Mini", piccola: "Piccola", media: "Media", grande: "Grande", gigante: "Gigante" };
 
 export const PAYMENT_METHODS: Record<string, string> = {
   contanti: "Contanti",

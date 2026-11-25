@@ -1,7 +1,6 @@
 import { z } from "zod";
 import { DOG_BREEDS } from "./dog-breeds";
 
-const dogBreed = z.string().refine(v => (DOG_BREEDS as readonly string[]).includes(v), "Seleziona una razza oppure Altra razza");
 const personFields = {
   firstName: z.string().trim().min(1, "Inserisci il nome").max(100),
   lastName: z.string().trim().min(1, "Inserisci il cognome").max(100),
@@ -10,8 +9,9 @@ const personFields = {
 };
 export const guestContactSchema = z.object(personFields);
 export const guestDogSchema = z.object({
-  dogName: z.string().trim().min(1, "Inserisci il nome del cane").max(80),
-  breed: dogBreed, breedOther: z.string().trim().max(120).default(""),
+  species: z.enum(["cane", "gatto"]).default("cane"),
+  dogName: z.string().trim().min(1, "Inserisci il nome dell’animale").max(80),
+  breed: z.string().trim().max(120).default(""), breedOther: z.string().trim().max(120).default(""),
   coatType: z.enum(["Liscio","Mosso","Riccio","Altro"]),
   coatLength: z.enum(["Corto","Medio","Lungo"]),
   coatConditions: z.array(z.enum(["Ben pettinato","Annodato","In muta/perde pelo","Altro"])).min(1,"Indica lo stato del manto").max(4),
@@ -37,11 +37,12 @@ export const guestBookingSchema = z.object({
   marketing: z.boolean().default(false),
   website: z.string().max(0,"Invio non valido").default(""),
   requestKey: z.string().uuid(),
-}).refine(v=>v.breed!=="Altra razza"||v.breedOther.length>=2,{path:["breedOther"],message:"Indica la razza del cane"});
+}).refine(v=>v.species==="gatto"||((DOG_BREEDS as readonly string[]).includes(v.breed)),{path:["breed"],message:"Seleziona una razza oppure Altra razza"})
+  .refine(v=>v.species==="gatto"||v.breed!=="Altra razza"||v.breedOther.length>=2,{path:["breedOther"],message:"Indica la razza del cane"});
 export type GuestBookingInput = z.infer<typeof guestBookingSchema>;
 export const GUEST_ACTIVE = ["richiesta","in_valutazione","proposta","confermata"] as const;
 
 /** Taglia solo indicativa per applicare le fasce del listino esistente dal peso dichiarato. */
-export function sizeFromWeight(weightKg:number):"piccola"|"media"|"grande"|"gigante" {
-  return weightKg <= 10 ? "piccola" : weightKg <= 25 ? "media" : weightKg <= 45 ? "grande" : "gigante";
+export function sizeFromWeight(weightKg:number):"mini"|"piccola"|"media"|"grande"|"gigante" {
+  return weightKg <= 5 ? "mini" : weightKg <= 10 ? "piccola" : weightKg <= 25 ? "media" : weightKg <= 45 ? "grande" : "gigante";
 }

@@ -35,5 +35,5 @@ export const LEGAL_CHECKLIST = [
   "Confermare provider e contratti di email, pagamenti e push prima dell’attivazione; verificare eventuale DPO e recapito dedicato senza inventarli.",
   "Rifare l’inventario cookie/tag sul dominio finale, fuori dall’iframe Replit: controllare anche cookie di instradamento, log e risorse CMS/mappe/video.",
   "Prima di abilitare GA4, GTM o Meta aggiornare inventario, fornitori, durata, basi giuridiche, garanzie e test di consenso/revoca; GTM richiede audit di ogni tag.",
-  "Verificare condizioni fidelity/pensione, destinatari e adempimenti fiscali; LaPappadiPoppy resta Coming Soon e il checkout pubblico resta disabilitato.",
+  "Verificare condizioni fidelity/pensione, destinatari ed adempimenti fiscali; #LaPappadiPoppy resta Coming Soon ed il checkout pubblico resta disabilitato.",
 ] as const;

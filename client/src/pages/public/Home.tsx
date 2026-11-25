@@ -3,26 +3,23 @@ import { useQuery } from "@tanstack/react-query";
 import { Scissors, Clock, Heart, Star, Sparkles, ShieldCheck, House, ShoppingBag, CreditCard, ArrowUpRight, Check } from "lucide-react";
 import { Mascot, BookingButton, type MascotKind } from "@/components/brand";
 import { ContactCards, MapBox } from "@/components/Contacts";
-import { usePublicSettings, usePage } from "@/lib/settings";
+import { usePublicSettings } from "@/lib/settings";
 import { get } from "@/lib/api";
 import { fmtDay } from "@/lib/format";
 import "./Home.css";
+import { PUBLIC_COPY } from "@shared/public-copy";
+import { QuietHours } from "@/components/BookingSteps";
 
 const SERVICES: { kind: MascotKind; title: string; text: string; href: string }[] = [
   { kind: "toelettatura", title: "Toelettatura", text: "Bagno, taglio e trattamenti su misura, con cura e pazienza.", href: "/toelettatura" },
   { kind: "self-service", title: "Self-Service", text: "Il lavaggio in autonomia, ogni giorno dell’anno.", href: "/self-service" },
   { kind: "pensione", title: "Pensione Casalinga", text: "Un ambiente familiare quando non puoi portarlo con te.", href: "/pensione-casalinga" },
-  { kind: "fidelity", title: "Fidelity Card", text: "Punti e vantaggi dedicati a te e al tuo cane.", href: "/fidelity-card" },
+  { kind: "fidelity", title: "Fidelity Card", text: PUBLIC_COPY.fidelity, href: "/fidelity-card" },
 ];
-const STEPS = [
-  { title: "Raccontaci del tuo cane", text: "Registrati e crea la sua scheda." },
-  { title: "Scegli il tuo appuntamento", text: "Indica servizio, operatore, giorno e orario." },
-  { title: "Attendi la nostra conferma", text: "La richiesta arriva al team di Dog’s Planet." },
-];
+const STEPS = PUBLIC_COPY.steps;
 
 export default function Home() {
   const { data: s } = usePublicSettings();
-  const { data: home } = usePage("home");
   const { data: promos } = useQuery<any[]>({ queryKey: ["promos"], queryFn: () => get("/api/public/promotions") });
   const shopOn = !!s?.site?.shopEnabled;
 
@@ -32,8 +29,8 @@ export default function Home() {
         <div className="container-dp home-hero-layout">
           <div className="home-hero-copy">
             <p className="home-eyebrow">Toelettatura · Cernusco sul Naviglio</p>
-            <h1 id="home-title">{s?.site?.heroTitle || "Benvenuto da Dog's Planet!"}</h1>
-            <p className="home-intro">{s?.site?.heroText || home?.body}</p>
+            <h1 id="home-title">{s?.site?.heroTitle || PUBLIC_COPY.heroTitle}</h1>
+            <p className="home-intro">{s?.site?.heroText || PUBLIC_COPY.heroText}</p>
           </div>
           <figure className="home-hero-photo">
             {s?.brand?.heroImageUrl ? (
@@ -44,11 +41,11 @@ export default function Home() {
                 <img src="/brand/hero.jpg" alt="Poppy, la mascotte di Dog's Planet, sul prato" className="home-original-photo" width={680} height={590} />
               </picture>
             )}
-            <figcaption>Poppy, la nostra mascotte. La cura, ogni giorno.</figcaption>
+            <figcaption>Poppy, la nostra Mascotte</figcaption>
           </figure>
           <div className="home-hero-actions">
             <BookingButton size="lg" className="home-booking" />
-            <Link href="/servizi" className="home-text-link">Esplora servizi e listino <ArrowUpRight size={17} aria-hidden="true" /></Link>
+            <Link href="/servizi" className="home-text-link">Esplora i servizi <ArrowUpRight size={17} aria-hidden="true" /></Link>
             <ul className="home-hero-trust" aria-label="Le nostre attenzioni">
               <li><ShieldCheck size={17} aria-hidden="true" /> Operatori professionisti</li>
               <li><Heart size={17} aria-hidden="true" /> Cura su misura</li>
@@ -83,7 +80,6 @@ export default function Home() {
         <div className="container-dp">
         <div className="home-section-heading">
           <div><p className="home-eyebrow">Un unico posto, tante attenzioni</p><h2 id="services-title">I nostri servizi</h2></div>
-          <p>Dal primo bagnetto alla cura di ogni giorno. Trova quello che fa per voi.</p>
         </div>
         <div className="home-services-grid">
           {SERVICES.map((x) => (
@@ -103,9 +99,9 @@ export default function Home() {
       <section data-home-section="grooming" className="home-grooming" aria-labelledby="grooming-title">
         <div className="container-dp home-section home-two-columns">
           <div>
-            <p className="home-eyebrow">Il cuore di Dog’s Planet</p>
-            <h2 id="grooming-title">Toelettatura professionale.<br /><span>Attenzioni tutte per lui.</span></h2>
-            <p className="home-body">Lavaggio, taglio a forbice, tosatura, stripping e trattamenti specifici. Ci prendiamo cura del tuo cane rispettando le sue esigenze, con prodotti professionali e operatori esperti.</p>
+            <p className="home-eyebrow">IL CUORE DI DOG'S PLANET</p>
+            <h2 id="grooming-title">Toelettatura professionale.<br /><span>Ogni dettaglio, su misura per Te.</span></h2>
+            <p className="home-body">{PUBLIC_COPY.grooming}</p>
             <ul className="home-grooming-benefits">
               {[{ icon: Scissors, text: "Taglio e styling" }, { icon: Sparkles, text: "Prodotti professionali" }, { icon: Heart, text: "Cura e pazienza" }, { icon: ShieldCheck, text: "Scheda cane dedicata" }].map(({ icon: Icon, text }) => (
                 <li key={text}><Icon size={20} aria-hidden="true" /><span>{text}</span></li>
@@ -116,11 +112,10 @@ export default function Home() {
             <h3>La tua richiesta, in 3 passi</h3>
             <ol>
               {STEPS.map((step, i) => (
-                <li key={step.title}><span className="home-step-number">{i + 1}</span><div><strong>{step.title}</strong><p>{step.text}</p></div></li>
+                <li key={step}><span className="home-step-number">{i + 1}</span><strong>{step}</strong></li>
               ))}
             </ol>
             <BookingButton className="w-full" />
-            <p className="home-process-note">L’appuntamento è confermato solo dopo la risposta del team.</p>
           </div>
         </div>
       </section>
@@ -142,6 +137,7 @@ export default function Home() {
             <p className="home-hours-time">{s?.selfservice?.hours || "08:00–22:00"}</p>
             <p className="home-hours-days">{s?.selfservice?.days || "Tutti i giorni, 365 giorni all’anno"}</p>
             <div className="home-hours-bottom"><CreditCard size={20} aria-hidden="true" /><p>Entri, ricarichi la tessera<br />e il bagnetto può iniziare.</p></div>
+            <QuietHours />
           </aside>
         </div>
       </section>
@@ -150,11 +146,11 @@ export default function Home() {
         <div className="home-secondary-grid">
           <article className="home-secondary-card">
             <span className="home-icon-badge"><House size={25} aria-hidden="true" /></span>
-            <div><h2>Pensione Casalinga</h2><p>Un ambiente familiare quando non puoi portarlo con te. Su richiesta, con disponibilità limitata.</p><Link href="/pensione-casalinga" className="home-text-link">Scopri la pensione <ArrowUpRight size={16} aria-hidden="true" /></Link></div>
+            <div><h2>Pensione Casalinga</h2><p>Un ambiente familiare quando non puoi portarlo con te.<br />Su richiesta, con disponibilità limitata.</p><Link href="/pensione-casalinga" className="home-text-link">Scopri la pensione <ArrowUpRight size={16} aria-hidden="true" /></Link></div>
           </article>
           <article className="home-secondary-card">
             <span className="home-icon-badge"><Star size={25} aria-hidden="true" /></span>
-            <div><h2>Fidelity Card</h2><p>La ricevi gratis registrandoti. Accumula punti con servizi e acquisti e scopri i vantaggi riservati a te.</p><Link href="/registrazione" className="home-text-link">Registrati gratuitamente <ArrowUpRight size={16} aria-hidden="true" /></Link></div>
+            <div><h2>Fidelity Card</h2><p>{PUBLIC_COPY.fidelity}</p><Link href="/registrazione" className="home-text-link">Registrati gratuitamente <ArrowUpRight size={16} aria-hidden="true" /></Link></div>
           </article>
         </div>
       </section>
@@ -162,7 +158,7 @@ export default function Home() {
       <section data-home-section="shop" className="container-dp home-shop-section" aria-labelledby="shop-title">
         <div className="home-shop-banner">
           <span className="home-icon-badge"><ShoppingBag size={27} aria-hidden="true" /></span>
-          <div className="home-shop-copy"><h2 id="shop-title">LaPappadiPoppy</h2>{!shopOn && <p className="home-coming-soon">Coming Soon</p>}<p>{shopOn ? "Scopri i prodotti selezionati per il tuo cane." : "Stiamo preparando una selezione speciale per il suo benessere. Nel frattempo trovi i nostri prodotti in negozio."}</p></div>
+          <div className="home-shop-copy"><h2 id="shop-title">#LaPappadiPoppy</h2>{!shopOn && <p className="home-coming-soon">Coming Soon</p>}<p>{shopOn ? "Scopri i prodotti selezionati per il tuo cane." : "Stiamo preparando una selezione speciale per il suo benessere. Nel frattempo trovi i nostri prodotti in negozio."}</p></div>
           <Link href="/pet-shop" className="btn-outline">{shopOn ? "Vai allo shop" : "Scopri di più"}<ArrowUpRight size={16} aria-hidden="true" /></Link>
         </div>
       </section>

@@ -11,15 +11,16 @@ import { usePublicSettings } from "@/lib/settings";
 import { addDaysISO, todayISO, fmtDay, fmtDateTime } from "@/lib/format";
 import { euro } from "@shared/constants";
 import { useServices, useOperators } from "./Pages";
+import BookingCalendar from "@/components/BookingCalendar";
 
 type Slot={time:string;serviceIds:number[];operatorIds:number[]};
 type GuestFormState={
-  firstName:string;lastName:string;email:string;phone:string;dogName:string;breed:string;breedOther:string;
+  firstName:string;lastName:string;email:string;phone:string;species:"cane"|"gatto";dogName:string;breed:string;breedOther:string;
   coatType:string;coatLength:string;coatConditions:string[];coatNotes:string;weightKg:string;ageYears:string;ageMonths:string;birthDate:string;
   serviceIds:number[];operatorId:string;notes:string;alternativeAvailability:string;privacy:boolean;marketing:boolean;website:string;
 };
 const initialForm:GuestFormState={
-  firstName:"",lastName:"",email:"",phone:"",dogName:"",breed:"",breedOther:"",
+  firstName:"",lastName:"",email:"",phone:"",species:"cane",dogName:"",breed:"",breedOther:"",
   coatType:"",coatLength:"",coatConditions:[],coatNotes:"",weightKg:"",ageYears:"",ageMonths:"",birthDate:"",
   serviceIds:[],operatorId:"",notes:"",alternativeAvailability:"",privacy:false,marketing:false,website:"",
 };
@@ -89,7 +90,8 @@ export default function BookingPage(){
     queryKey:["my-dogs"],queryFn:()=>get("/api/account/dogs"),enabled:mode==="customer"&&me?.role==="customer",
   });
 
-  const availableServices=(services||[]).filter(s=>s.bookable&&s.operatorIds.length>0);
+  const petSpecies=mode==="customer"?(dogs?.find(d=>d.id===dogId)?.species||"cane"):form.species;
+  const availableServices=(services||[]).filter(s=>s.bookable&&s.operatorIds.length>0&&(s.species==="entrambi"||s.species===petSpecies));
   const selectedSlot=availability.data?.slots.find(s=>s.time===time);
   const selectedServices=availableServices.filter(s=>form.serviceIds.includes(s.id));
   const compatibleOperators=useMemo(()=>form.serviceIds.length?(operators||[]).filter(o=>form.serviceIds.every(id=>o.serviceIds.includes(id))):[],[operators,form.serviceIds]);
@@ -148,9 +150,8 @@ export default function BookingPage(){
       <div className="mx-auto max-w-3xl space-y-5">
         <section className="card min-w-0" aria-labelledby="booking-date-heading">
           <h2 id="booking-date-heading" className="mb-4 flex items-center gap-3 text-lg font-bold"><span className={`grid h-8 w-8 place-items-center rounded-full text-sm text-white ${time?"bg-green-600":"bg-brand-navy"}`}>{time?"✓":"1"}</span><CalendarDays size={19} className="text-brand-turquoise"/>Scegli il giorno</h2>
-          <Field label="Data preferita">
-            <input type="date" data-testid="booking-date" className="input min-h-12 w-full" min={todayISO()} max={maxDate} value={date} onChange={e=>{setDate(e.target.value);setTime("");setMode(null);setError(null);}} />
-          </Field>
+          <BookingCalendar value={date} min={todayISO()} max={maxDate}
+            onChange={day=>{setDate(day);setTime("");setMode(null);setError(null);}} />
           {date&&<div className="mt-5">
             <h3 className="mb-3 flex items-center gap-2 font-bold"><Clock3 size={18} className="text-brand-turquoise"/>Scegli un orario libero</h3>
             {availability.isLoading?<Spinner label="Controllo i turni e le disponibilità…"/>:
@@ -179,12 +180,12 @@ export default function BookingPage(){
         </section>}
 
         {mode==="customer"&&me?.role==="customer"&&<section className="card min-w-0">
-          <h2 className="mb-4 flex items-center gap-3 text-lg font-bold"><span className="grid h-8 w-8 place-items-center rounded-full bg-brand-navy text-sm text-white">3</span><Dog size={19} className="text-brand-turquoise"/>Il tuo cane e i servizi</h2>
+          <h2 className="mb-4 flex items-center gap-3 text-lg font-bold"><span className="grid h-8 w-8 place-items-center rounded-full bg-brand-navy text-sm text-white">3</span><Dog size={19} className="text-brand-turquoise"/>Il tuo animale e i servizi</h2>
           {dogsLoading?<Spinner/>:!dogs?.length?<div className="rounded-xl bg-brand-sky p-4 text-sm">Non hai ancora una scheda cane. <Link href={`/account/cani?nuovo=1&next=${encodeURIComponent(accountNext)}`} className="font-bold underline">Aggiungila al tuo account</Link> oppure <button type="button" className="font-bold underline" onClick={()=>setMode("guest")}>continua come ospite</button>.</div>:
           <form onSubmit={submit} className="space-y-5">
             <Field label="Cane già registrato">
-              <select data-testid="booking-dog" className="input min-h-12 w-full" required value={dogId||""} onChange={e=>setDogId(Number(e.target.value)||null)}>
-                <option value="">Scegli il cane</option>{dogs.map(d=><option key={d.id} value={d.id}>{d.name} · {d.breed||"razza non indicata"} · {d.size}</option>)}
+              <select data-testid="booking-dog" className="input min-h-12 w-full" required value={dogId||""} onChange={e=>{setDogId(Number(e.target.value)||null);update("serviceIds",[]);update("operatorId","");}}>
+              <option value="">Scegli l’animale</option>{dogs.map(d=><option key={d.id} value={d.id}>{d.name} · {d.species==="gatto"?"Gatto":"Cane"} · {d.breed||"razza non indicata"} · {d.size}</option>)}
               </select>
             </Field>
             <ServiceOptions services={availableServices} selected={form.serviceIds} onToggle={toggleService}/>
@@ -214,8 +215,9 @@ export default function BookingPage(){
             <fieldset className="rounded-2xl border border-slate-200 p-4">
               <legend className="px-1 font-bold text-brand-navy">2. Il nostro ospite</legend>
               <div className="grid gap-3 sm:grid-cols-2">
-                <Field label="Nome del cane *"><input required maxLength={80} data-testid="guest-dog-name" className="input min-h-12" value={form.dogName} onChange={e=>update("dogName",e.target.value)}/></Field>
-                <Field label="Razza *" hint="Cerca e seleziona una razza; per le altre scegli “Altra razza”.">
+                <Field label="Specie *"><select required className="input min-h-12" value={form.species} onChange={e=>{update("species",e.target.value);update("breed","");update("breedOther","");update("serviceIds",[]);update("operatorId","");}}><option value="cane">Cane</option><option value="gatto">Gatto</option></select></Field>
+                <Field label={`Nome del ${form.species==="gatto"?"gatto":"cane"} *`}><input required maxLength={80} data-testid="guest-dog-name" className="input min-h-12" value={form.dogName} onChange={e=>update("dogName",e.target.value)}/></Field>
+                {form.species==="gatto"?<Field label="Razza del gatto (facoltativa)"><input maxLength={120} className="input min-h-12" value={form.breed} onChange={e=>update("breed",e.target.value)}/></Field>:<Field label="Razza *" hint="Cerca e seleziona una razza; per le altre scegli “Altra razza”.">
                   <div className="relative">
                     <input role="combobox" aria-expanded={breedOpen} aria-controls="dog-breed-options" aria-autocomplete="list" data-testid="guest-breed" required maxLength={120} className="input min-h-12 w-full" placeholder="Cerca una razza…" value={breedOpen?breedText:(form.breed||"")} onFocus={()=>{setBreedText(form.breed);setBreedOpen(true);}} onChange={e=>{setBreedText(e.target.value);setBreedOpen(true);}} onBlur={()=>setTimeout(()=>setBreedOpen(false),150)} />
                     {breedOpen&&<div id="dog-breed-options" role="listbox" className="absolute z-20 mt-1 max-h-60 w-full overflow-y-auto rounded-xl border border-slate-200 bg-white p-1 shadow-xl">
@@ -224,7 +226,7 @@ export default function BookingPage(){
                     </div>}
                   </div>
                   {form.breed==="Altra razza"&&<input required minLength={2} maxLength={120} aria-label="Specifica la razza" placeholder="Scrivi la razza" className="input mt-2 min-h-12" value={form.breedOther} onChange={e=>update("breedOther",e.target.value)}/>}
-                </Field>
+                </Field>}
                 <Field label="Tipo di pelo *"><select required data-testid="guest-coat-type" className="input min-h-12" value={form.coatType} onChange={e=>update("coatType",e.target.value)}><option value="">Seleziona…</option>{["Liscio","Mosso","Riccio","Altro"].map(x=><option key={x}>{x}</option>)}</select></Field>
                 <Field label="Lunghezza del pelo *"><select required data-testid="guest-coat-length" className="input min-h-12" value={form.coatLength} onChange={e=>update("coatLength",e.target.value)}><option value="">Seleziona…</option>{["Corto","Medio","Lungo"].map(x=><option key={x}>{x}</option>)}</select></Field>
                 <Field label="Peso approssimativo (kg) *" hint="Indica il peso circa, anche se non preciso."><input type="number" inputMode="decimal" data-testid="guest-weight" required min="0.2" max="150" step="0.1" className="input min-h-12" value={form.weightKg} onChange={e=>update("weightKg",e.target.value)}/></Field>
@@ -266,10 +268,18 @@ export default function BookingPage(){
 }
 
 function ServiceOptions({services,selected,onToggle}:{services:any[];selected:number[];onToggle:(id:number)=>void}){
+  const priceLabel=(s:any)=>{
+    if(s.pricingType==="fascia"&&s.priceCents!=null&&s.priceMaxCents!=null)return `${euro(s.priceCents)}–${euro(s.priceMaxCents)}`;
+    if(s.pricingType==="orario")return "tariffa oraria";
+    if(s.pricingType==="percentuale")return "supplemento percentuale";
+    if(s.pricingType==="preventivo")return "da valutare";
+    if(s.priceCents!=null)return `${s.pricingType==="da"?"da ":""}${euro(s.priceCents)}`;
+    return "prezzo da definire";
+  };
   return <fieldset className="mb-4">
     <legend className="mb-2 font-semibold text-slate-700">Servizi richiesti * <span className="font-normal text-slate-500">Seleziona uno o più servizi attivi.</span></legend>
     {!services.length?<p className="rounded-xl bg-amber-50 p-3 text-sm">Nessun servizio risulta prenotabile online al momento.</p>:
-      <div className="grid gap-2 sm:grid-cols-2">{services.map(s=><CheckLine key={s.id} checked={selected.includes(s.id)} onChange={()=>onToggle(s.id)}><span className="font-semibold">{s.name}</span><span className="block text-xs text-slate-500">{s.category} · circa {s.durationMin} min{s.priceCents!=null?` · ${euro(s.priceCents)}`:""}</span></CheckLine>)}</div>}
+      <div className="grid gap-2 sm:grid-cols-2">{services.map(s=><CheckLine key={s.id} checked={selected.includes(s.id)} onChange={()=>onToggle(s.id)}><span className="font-semibold">{s.name}</span><span className="block text-xs text-slate-500">{s.category} · circa {s.durationMin} min · {priceLabel(s)}</span></CheckLine>)}</div>}
   </fieldset>;
 }
 function OperatorOptions({operators,selected,onChange,allowAny}:{operators:any[];selected:string;onChange:(v:string)=>void;allowAny:boolean}){

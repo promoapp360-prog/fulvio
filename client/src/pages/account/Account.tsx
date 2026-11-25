@@ -15,7 +15,7 @@ import { euro, SIZE_LABELS, PAYMENT_METHODS, PAYMENT_KINDS, ORDER_STATUS, BOARDI
 const NAV = [
   { href: "/account", label: "Panoramica", icon: Home },
   { href: "/account/appuntamenti", label: "Appuntamenti", icon: CalendarDays },
-  { href: "/account/cani", label: "I miei cani", icon: Dog },
+  { href: "/account/cani", label: "I miei animali", icon: Dog },
   { href: "/account/fidelity", label: "Fidelity Card", icon: Star },
   { href: "/account/pensione", label: "Pensione", icon: Home },
   { href: "/account/ordini", label: "Ordini", icon: ShoppingBag },
@@ -144,7 +144,7 @@ function Appointments() {
       {a.status === "attesa_pagamento" && (
         <div className="mt-3 rounded-xl bg-sky-50 p-3 text-sm">
           Pagamento richiesto: <b>{a.paymentMode === "saldo" ? euro(a.finalPriceCents ?? a.estimatedPriceCents) : euro(a.depositCents)}</b> ({a.paymentMode === "saldo" ? "saldo" : "acconto"}){a.paidCents > 0 && <> · già versati {euro(a.paidCents)}</>}
-          <div className="mt-2"><button className="btn-primary btn-sm" onClick={() => pay(a.id)}>Paga on line</button></div>
+          <div className="mt-2"><button className="btn-primary btn-sm" onClick={() => pay(a.id)}>Paga online</button></div>
         </div>
       )}
       <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-slate-500">
@@ -167,7 +167,7 @@ function Appointments() {
   return (
     <div className="space-y-6">
       <GuestRecordClaims rows={guestRows||[]} />
-      <p className="text-xs text-slate-500">Puoi annullare on line fino a {cancelHours} ore prima dell'appuntamento; dopo, invia una richiesta al salone. {ps?.cancellation?.depositPolicy}</p>
+      <p className="text-xs text-slate-500">Puoi annullare online fino a {cancelHours} ore prima dell'appuntamento; dopo, invia una richiesta al salone. {ps?.cancellation?.depositPolicy}</p>
       <section><h2 className="mb-3 text-xl font-bold">In programma</h2>{upcoming.length ? <div className="space-y-3">{upcoming.map((a) => <Card key={a.id} a={a} />)}</div> : <Empty>Nessun appuntamento in programma.</Empty>}</section>
       {!!past.length&&<section><h2 className="mb-3 text-xl font-bold">Storico trattamenti</h2>
         <div className="overflow-x-auto"><table className="table-dp"><thead><tr><th>Data</th><th>Cane</th><th>Servizio</th><th>Operatore</th><th>Stato</th></tr></thead>
@@ -214,13 +214,13 @@ function Dogs() {
   if (isLoading) return <Spinner />;
   return (
     <div>
-      <div className="mb-4 flex items-center justify-between"><h2 className="text-xl font-bold">I miei cani</h2><button className="btn-primary btn-sm" onClick={() => setEditing({})}><Plus size={14} /> Aggiungi</button></div>
-      {!data?.length ? <Empty>Registra il tuo primo cane per poter richiedere gli appuntamenti.</Empty> : (
+      <div className="mb-4 flex items-center justify-between"><h2 className="text-xl font-bold">I miei animali</h2><button className="btn-primary btn-sm" onClick={() => setEditing({})}><Plus size={14} /> Aggiungi</button></div>
+      {!data?.length ? <Empty>Registra il tuo cane o gatto per poter richiedere gli appuntamenti.</Empty> : (
         <div className="grid gap-4 sm:grid-cols-2">
           {data.map((d) => (
             <div key={d.id} className="card">
               <div className="flex items-start justify-between">
-                <div><h3 className="text-lg font-bold">{d.name}</h3><p className="text-sm text-slate-600">{d.breed || "Razza non indicata"} · taglia {SIZE_LABELS[d.size].toLowerCase()}{d.weightKg ? ` · ${d.weightKg} kg` : ""}</p>{d.birthDate && <p className="text-xs text-slate-500">{ageOf(d.birthDate)}</p>}</div>
+                <div><h3 className="text-lg font-bold">{d.name}</h3><p className="text-sm text-slate-600">{d.species === "gatto" ? "Gatto" : "Cane"} · {d.breed || "Razza non indicata"} · taglia {SIZE_LABELS[d.size].toLowerCase()}{d.weightKg ? ` · ${d.weightKg} kg` : ""}</p>{d.birthDate && <p className="text-xs text-slate-500">{ageOf(d.birthDate)}</p>}</div>
                 <div className="flex gap-1">
                   <button className="btn-ghost btn-sm" onClick={() => setEditing(d)} aria-label="Modifica"><Pencil size={14} /></button>
                   <button className="btn-ghost btn-sm text-red-600" aria-label="Rimuovi" onClick={async () => { if (confirm(`Rimuovere ${d.name}?`)) { await del(`/api/account/dogs/${d.id}`); qc.invalidateQueries({ queryKey: ["my-dogs"] }); } }}><Trash2 size={14} /></button>
@@ -231,7 +231,7 @@ function Dogs() {
           ))}
         </div>
       )}
-      <Modal open={!!editing} onClose={() => setEditing(null)} title={editing?.id ? `Scheda di ${editing.name}` : "Nuovo cane"} wide>
+      <Modal open={!!editing} onClose={() => setEditing(null)} title={editing?.id ? `Scheda di ${editing.name}` : "Nuovo animale"} wide>
         {editing && <DogForm initial={editing.id ? editing : undefined} onSubmit={save} onCancel={() => setEditing(null)} />}
       </Modal>
     </div>
@@ -324,7 +324,7 @@ function Boarding() {
 function Orders() {
   const { data, isLoading } = useQuery<any[]>({ queryKey: ["acc-orders"], queryFn: () => get("/api/account/orders") });
   if (isLoading) return <Spinner />;
-  if (!data?.length) return <Empty>Nessun ordine. <Link href="/pet-shop" className="font-bold underline">Vai a LaPappadiPoppy</Link></Empty>;
+  if (!data?.length) return <Empty>Nessun ordine. <Link href="/pet-shop" className="font-bold underline">Vai a #LaPappadiPoppy</Link></Empty>;
   return (
     <div className="space-y-3">{data.map((o) => (
       <div key={o.id} className="card">
@@ -408,7 +408,7 @@ function Profile() {
       </form>
       <div className="card"><h2 className="text-xl font-bold">Sicurezza</h2><p className="mt-1 text-sm text-slate-600">Chiudi l'accesso su tutti i dispositivi (ad esempio se hai usato un telefono non tuo).</p>
         <button className="btn-outline mt-3" onClick={async () => { if (confirm("Uscire da tutti i dispositivi?")) { await post("/api/auth/logout-all"); window.location.href = "/login"; } }}>Esci da tutti i dispositivi</button></div>
-      <div className="card"><h2 className="text-xl font-bold">I tuoi dati personali</h2><p className="mt-1 text-sm text-slate-600">Scarica una copia di tutti i dati che conserviamo su di te. Per la cancellazione dell'account scrivi a dogsplanetcernusco@gmail.com.</p><a href="/api/account/export" className="btn-outline mt-3">Scarica i miei dati</a></div>
+      <div className="card"><h2 className="text-xl font-bold">I tuoi dati personali</h2><p className="mt-1 text-sm text-slate-600">Scarica una copia di tutti i dati che conserviamo su di te. Per la cancellazione dell'account scrivi a info@dogsplanet.it.</p><a href="/api/account/export" className="btn-outline mt-3">Scarica i miei dati</a></div>
     </div>
   );
 }

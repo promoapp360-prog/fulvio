@@ -57,7 +57,7 @@ export function Stats() {
           <select className="input" value={f.operatorId} onChange={(e) => setF({ ...f, operatorId: e.target.value })} aria-label="Operatore"><option value="">Tutti gli operatori</option>{ops?.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}</select>
           <select className="input" value={f.method} onChange={(e) => setF({ ...f, method: e.target.value })} aria-label="Pagamento"><option value="">Tutti i pagamenti</option>{Object.entries(PAYMENT_METHODS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select>
           <select className="input" value={f.category} onChange={(e) => setF({ ...f, category: e.target.value })} aria-label="Categoria"><option value="">Tutte le categorie</option>{cats?.rows?.map((c: any) => <option key={c.id} value={c.name}>{c.name}</option>)}</select>
-          <select className="input" value={f.channel} onChange={(e) => setF({ ...f, channel: e.target.value })} aria-label="Canale"><option value="">Tutti i canali</option><option value="toelettatura">Toelettatura</option><option value="selfservice">Self-service</option><option value="shop_online">Shop on line</option><option value="shop_negozio">Vendite in negozio</option><option value="pensione">Pensione</option></select>
+          <select className="input" value={f.channel} onChange={(e) => setF({ ...f, channel: e.target.value })} aria-label="Canale"><option value="">Tutti i canali</option><option value="toelettatura">Toelettatura</option><option value="selfservice">Self-service</option><option value="shop_online">Shop online</option><option value="shop_negozio">Vendite in negozio</option><option value="pensione">Pensione</option></select>
         </div>
       </div>
       {error ? <Empty>{(error as Error).message}</Empty> : isLoading || !data ? <Spinner /> : (
@@ -90,7 +90,7 @@ export function Stats() {
               <p className="mt-2 text-xs text-slate-500">Presenze registrate, distinte dalle ore prenotate dai clienti.</p></div>
             <div className="card"><h2 className="mb-3 font-bold">Prodotti più venduti</h2>
               {data.topProducts.length ? <table className="table-dp"><tbody>{data.topProducts.map((p: any) => <tr key={p.name}><td>{p.name}</td><td>{p.qty} pz</td><td className="text-right">{euro(p.cents)}</td></tr>)}</tbody></table> : <p className="text-sm text-slate-500">Nessuna vendita nel periodo.</p>}
-              <div className="mt-3 flex flex-wrap gap-2 text-sm">{data.shopSales.map((s: any) => <span key={s.channel} className="badge bg-brand-sky text-brand-navy">{s.channel === "online" ? "On line" : "In negozio"}: {s.n} ordini · {euro(s.cents)}</span>)}</div></div>
+              <div className="mt-3 flex flex-wrap gap-2 text-sm">{data.shopSales.map((s: any) => <span key={s.channel} className="badge bg-brand-sky text-brand-navy">{s.channel === "online" ? "online" : "In negozio"}: {s.n} ordini · {euro(s.cents)}</span>)}</div></div>
             <div className="card"><h2 className="mb-3 font-bold">Metodi di pagamento</h2><Bars data={data.methods.map((m: any) => ({ label: PAYMENT_METHODS[m.method] || m.method, value: m.cents }))} />
               <h3 className="mb-2 mt-4 font-bold">Appuntamenti per stato</h3>
               <div className="flex flex-wrap gap-2">{data.appointmentsByStatus.map((s: any) => <span key={s.status} className="badge text-sm" style={{ background: STATUS_COLORS[s.status] + "22", color: STATUS_COLORS[s.status] }}>{STATUS_LABELS[s.status]}: {s.n}</span>)}</div></div>

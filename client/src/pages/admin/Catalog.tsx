@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, Pencil, Trash2 } from "lucide-react";
+import { Plus, Pencil, Trash2, Copy, X } from "lucide-react";
 import { PageTitle, Spinner, Modal, Field, Check, MoneyInput, ErrorBox, Tabs, useToast } from "@/components/ui";
 import ResourceManager from "@/components/ResourceManager";
-import { get, post, patch, del } from "@/lib/api";
+import { get, post, patch, put, del } from "@/lib/api";
 import { useMe, can } from "@/lib/auth";
 import { SettingsForm } from "./Content";
 import { fmtDay } from "@/lib/format";
@@ -15,43 +15,74 @@ export function Services() {
   const toast = useToast();
   const [tab, setTab] = useState("servizi");
   const { data, isLoading } = useQuery<any[]>({ queryKey: ["admin-services"], queryFn: () => get("/api/admin/services") });
+  const { data: categories } = useQuery<any[]>({ queryKey: ["admin-service-categories"], queryFn: () => get("/api/admin/service-categories") });
   const { data: ops } = useAdminOperators();
   const [edit, setEdit] = useState<any>(null);
   const [err, setErr] = useState<unknown>(null);
 
   const open = (s: any) => { setErr(null); setEdit({
-    name: "", category: "Toelettatura", description: "", priceCents: null, priceFrom: true, durationMin: 60, bookable: true, active: true, visible: true, sortOrder: 0, operatorIds: [],
-    ...s, variants: SIZES.map((size) => ({ size, priceCents: s.variants?.find((v: any) => v.size === size)?.priceCents ?? null, durationMin: s.variants?.find((v: any) => v.size === size)?.durationMin ?? null })),
+    name: "", category: categories?.find((c) => c.active)?.name || "Toelettatura", description: "", priceCents: null, priceMaxCents: null,
+    pricingType: "da", species: "cane", imageUrl: "", priceFrom: true, durationMin: 60, bookable: true, active: true, visible: true, sortOrder: 0, operatorIds: [],
+    ...s, pricingRules: (s.pricingRules || []).map((r: any) => ({ ...r })),
+    variants: SIZES.map((size) => ({ size, priceCents: s.variants?.find((v: any) => v.size === size)?.priceCents ?? null, durationMin: s.variants?.find((v: any) => v.size === size)?.durationMin ?? null })),
   }); };
   const save = async () => {
     setErr(null);
     const { id, slug, createdAt, supplements, ...body } = edit;
     body.durationMin = Number(body.durationMin); body.sortOrder = Number(body.sortOrder);
+    body.priceFrom = body.pricingType === "da";
     body.variants = body.variants.map((v: any) => ({ ...v, durationMin: v.durationMin ? Number(v.durationMin) : null }));
-    try { if (id) await patch(`/api/admin/services/${id}`, body); else await post("/api/admin/services", body); toast("Servizio salvato"); setEdit(null); qc.invalidateQueries({ queryKey: ["admin-services"] }); qc.invalidateQueries({ queryKey: ["admin-operators"] }); }
+    body.pricingRules = body.pricingRules.map((r: any, index: number) => ({ ...r,
+      size: r.size || null, coatType: r.coatType || null, coatLength: r.coatLength || null,
+      priceCents: r.priceCents === "" ? null : r.priceCents, priceMaxCents: r.priceMaxCents === "" ? null : r.priceMaxCents,
+      percentageBasisPoints: r.percentageBasisPoints === "" ? null : Number(r.percentageBasisPoints),
+      durationMin: r.durationMin === "" || r.durationMin == null ? null : Number(r.durationMin), sortOrder: index,
+    }));
+    try { if (id) await patch(`/api/admin/services/${id}`, body); else await post("/api/admin/services", body); toast("Servizio salvato"); setEdit(null); qc.invalidateQueries({ queryKey: ["admin-services"] }); qc.invalidateQueries({ queryKey: ["admin-operators"] }); qc.invalidateQueries({ queryKey: ["public-services"] }); }
     catch (e) { setErr(e); }
   };
-  const cats = Array.from(new Set((data || []).map((s) => s.category)));
+  const cats = Array.from(new Set([...(categories || []).map((c) => c.name), ...(data || []).map((s) => s.category)]));
+  const knownCategoryNames = new Set((categories || []).map((c) => c.name));
+  const selectableCats = Array.from(new Set([
+    ...(categories || []).filter((c) => c.active).map((c) => c.name),
+    ...(data || []).map((s) => s.category).filter((name) => !knownCategoryNames.has(name)),
+    ...(edit?.category ? [edit.category] : []),
+  ]));
 
   return (
     <div>
-      <PageTitle title="Servizi e listino" subtitle="Prezzi, durate, varianti per taglia e operatori abilitati">
+      <PageTitle title="Gestione prestazioni e listino" subtitle="Catalogo condiviso con il sito e le richieste online">
         {tab === "servizi" && <button className="btn-primary btn-sm" onClick={() => open({})}><Plus size={14} /> Nuovo servizio</button>}
       </PageTitle>
-      <Tabs value={tab} onChange={setTab} items={[{ value: "servizi", label: "Servizi" }, { value: "supplementi", label: "Supplementi" }]} />
-      {tab === "supplementi" ? (
-        <ResourceManager title="Supplementi" subtitle="Applicati automaticamente in base alla scheda cane (nodi, muta, comportamento) o manualmente" endpoint="/api/admin/supplements"
-          defaults={{ condition: "manuale", priceCents: 0, extraMin: 0, active: true }}
+      <Tabs value={tab} onChange={setTab} items={[{ value: "servizi", label: "Prestazioni" }, { value: "categorie", label: "Categorie" }, { value: "supplementi", label: "Supplementi" }, { value: "tariffe", label: "Tariffe" }]} />
+      {tab === "categorie" ? (
+        <ResourceManager title="Categorie prestazioni" subtitle="Gestione interna del catalogo; archiviare una categoria non elimina le richieste già ricevute." endpoint="/api/admin/service-categories" deletePrompt="Archiviare la categoria? I servizi e le richieste già ricevute resteranno consultabili."
+          defaults={{ sortOrder: 0, active: true, visible: true }}
+          fields={[
+            { name: "name", label: "Nome categoria", required: true },
+            { name: "sortOrder", label: "Ordine", type: "number" },
+            { name: "active", label: "Attiva", type: "checkbox" },
+            { name: "visible", label: "Visibile sul sito", type: "checkbox" },
+          ]}
+          columns={[{ key: "name", label: "Categoria" }, { key: "sortOrder", label: "Ordine" }, { key: "active", label: "Attiva", render: (r) => r.active ? "Sì" : "No" }, { key: "visible", label: "Visibile", render: (r) => r.visible ? "Sì" : "No" }]}
+        />
+      ) : tab === "tariffe" ? <HourlyRateSettings /> : tab === "supplementi" ? (
+        <ResourceManager title="Supplementi" subtitle="Il prezzo e la durata extra restano in proposta: non si applicano automaticamente e devono essere confermati dal salone." endpoint="/api/admin/supplements"
+          defaults={{ condition: "manuale", conditionLabel: "", description: "", priceCents: 0, pricingType: "fisso", percentageBasisPoints: null, requiresConfirmation: true, extraMin: 0, active: true }}
           fields={[
             { name: "name", label: "Nome", required: true },
             { name: "serviceId", label: "Servizio", type: "select", numeric: true, options: (data || []).map((s) => ({ value: s.id, label: s.name })), hint: "Vuoto = tutti i servizi" },
-            { name: "condition", label: "Si applica se", type: "select", required: true, options: [{ value: "manuale", label: "Manuale (solo dal salone)" }, { value: "nodi", label: "Il cane ha nodi" }, { value: "muta", label: "Il cane è in muta" }, { value: "aggressivo", label: "Comportamento aggressivo" }, { value: "esigenze", label: "Esigenze particolari" }] },
-            { name: "priceCents", label: "Prezzo aggiuntivo", type: "money" },
+            { name: "condition", label: "Condizione", type: "select", required: true, options: [{ value: "manuale", label: "Da valutare manualmente" }, { value: "nodi", label: "Nodi sul mantello" }, { value: "muta", label: "Periodo di muta" }, { value: "aggressivo", label: "Esigenze comportamentali" }, { value: "esigenze", label: "Altre esigenze" }] },
+            { name: "conditionLabel", label: "Causa specifica (es. parassiti, taglia fuori standard)" },
+            { name: "description", label: "Descrizione / indicazioni per il salone", type: "textarea" },
+            { name: "pricingType", label: "Tipo di prezzo", type: "select", options: [{ value: "fisso", label: "Importo fisso" }, { value: "percentuale", label: "Percentuale" }, { value: "preventivo", label: "Da valutare" }] },
+            { name: "priceCents", label: "Importo (per prezzo fisso)", type: "money" },
+            { name: "percentageBasisPoints", label: "Percentuale (es. 5000 = 50%)", type: "number" },
             { name: "extraMin", label: "Minuti aggiuntivi", type: "number" },
-            { name: "active", label: "Attivo", type: "checkbox" },
+            { name: "active", label: "Attivo nel catalogo interno", type: "checkbox" },
           ]}
           transform={(b) => ({ ...b, priceCents: b.priceCents ?? 0 })}
-          columns={[{ key: "name", label: "Supplemento" }, { key: "condition", label: "Condizione" }, { key: "priceCents", label: "Prezzo", render: (r) => euro(r.priceCents) }, { key: "extraMin", label: "+ min" }]}
+          columns={[{ key: "name", label: "Supplemento" }, { key: "conditionLabel", label: "Causa" , render: (r) => r.conditionLabel || r.condition}, { key: "pricingType", label: "Calcolo" }, { key: "priceCents", label: "Prezzo base", render: (r) => euro(r.priceCents) }, { key: "extraMin", label: "+ min" }]}
         />
       ) : isLoading ? <Spinner /> : cats.map((c) => (
         <section key={c} className="mb-6">
@@ -61,12 +92,13 @@ export function Services() {
               <tbody>{data!.filter((s) => s.category === c).map((s) => (
                 <tr key={s.id}>
                   <td className="font-bold">{s.name}</td>
-                  <td>{s.priceCents != null ? `${s.priceFrom ? "da " : ""}${euro(s.priceCents)}` : <span className="text-amber-600">da impostare</span>}{s.variants.length > 0 && <span className="block text-xs text-slate-500">{s.variants.length} varianti taglia</span>}</td>
+                  <td>{s.pricingType === "fascia" && s.priceCents != null && s.priceMaxCents != null ? `${euro(s.priceCents)}–${euro(s.priceMaxCents)}` : s.pricingType === "orario" ? "Orario" : s.pricingType === "percentuale" ? "Percentuale" : s.pricingType === "preventivo" ? "Da valutare" : s.priceCents != null ? `${s.pricingType === "da" ? "da " : ""}${euro(s.priceCents)}` : <span className="text-amber-600">da impostare</span>}{s.pricingRules?.length > 0 && <span className="block text-xs text-slate-500">{s.pricingRules.length} regole prezzo</span>}{s.variants?.length > 0 && <span className="block text-xs text-slate-500">{s.variants.length} varianti taglia</span>}</td>
                   <td>{s.durationMin} min</td>
                   <td className="text-xs">{ops?.filter((o) => s.operatorIds.includes(o.id)).map((o) => o.name).join(", ") || <span className="text-red-600">nessuno</span>}</td>
-                  <td className="text-xs">{s.active ? "Attivo" : "Disattivo"} · {s.visible ? "visibile" : "nascosto"} · {s.bookable ? "prenotabile" : "non prenotabile"}</td>
-                  <td className="whitespace-nowrap"><button className="btn-ghost btn-sm" onClick={() => open(s)}><Pencil size={14} /></button>
-                    <button className="btn-ghost btn-sm text-red-600" onClick={async () => { if (confirm("Eliminare il servizio? Se ha appuntamenti verrà solo disattivato.")) { await del(`/api/admin/services/${s.id}`); qc.invalidateQueries({ queryKey: ["admin-services"] }); } }}><Trash2 size={14} /></button></td>
+                  <td className="text-xs">{s.active ? "Attivo" : "Archiviato"} · {s.visible ? "visibile" : "nascosto"} · {s.bookable ? "prenotabile" : "non prenotabile"} · {s.species}</td>
+                  <td className="whitespace-nowrap"><button className="btn-ghost btn-sm" aria-label={`Modifica ${s.name}`} onClick={() => open(s)}><Pencil size={14} /></button>
+                    <button className="btn-ghost btn-sm" aria-label={`Duplica ${s.name}`} onClick={() => open({ ...s, id: undefined, slug: undefined, name: `${s.name} (copia)`, active: false, visible: false, bookable: false })}><Copy size={14} /></button>
+                    {s.active&&<button className="btn-ghost btn-sm text-red-600" aria-label={`Archivia ${s.name}`} onClick={async () => { if (confirm("Archiviare il servizio? I dati delle richieste già ricevute resteranno consultabili.")) { await del(`/api/admin/services/${s.id}`); qc.invalidateQueries({ queryKey: ["admin-services"] }); } }}><Trash2 size={14} /></button>}</td>
                 </tr>
               ))}</tbody></table>
           </div>
@@ -77,18 +109,34 @@ export function Services() {
           <form onSubmit={(e) => { e.preventDefault(); save(); }} className="space-y-4">
             <div className="grid gap-3 sm:grid-cols-3">
               <Field label="Nome *" className="sm:col-span-2"><input className="input" required value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} /></Field>
-              <Field label="Categoria *"><input className="input" required list="cats" value={edit.category} onChange={(e) => setEdit({ ...edit, category: e.target.value })} /><datalist id="cats">{cats.map((c) => <option key={c} value={c} />)}</datalist></Field>
+              <Field label="Categoria *"><select className="input" required value={edit.category} onChange={(e) => setEdit({ ...edit, category: e.target.value })}>{selectableCats.map((c) => <option key={c} value={c}>{c}</option>)}</select></Field>
               <Field label="Descrizione" className="sm:col-span-3"><textarea className="input" value={edit.description || ""} onChange={(e) => setEdit({ ...edit, description: e.target.value })} /></Field>
+              <Field label="Specie"><select className="input" value={edit.species || "cane"} onChange={(e) => setEdit({ ...edit, species: e.target.value })}><option value="cane">Cane</option><option value="gatto">Gatto</option><option value="entrambi">Cane e gatto</option></select></Field>
+              <Field label="Tipo di prezzo"><select className="input" value={edit.pricingType || "da"} onChange={(e) => setEdit({ ...edit, pricingType: e.target.value })}>{[["fisso","Importo fisso"],["da","A partire da"],["fascia","Fascia di prezzo"],["orario","Tariffa oraria"],["percentuale","Percentuale"],["preventivo","Da valutare"]].map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></Field>
               <Field label="Prezzo base" hint="Vuoto = su richiesta"><MoneyInput value={edit.priceCents} onChange={(v) => setEdit({ ...edit, priceCents: v })} /></Field>
+              {edit.pricingType==="fascia"&&<Field label="Prezzo massimo"><MoneyInput value={edit.priceMaxCents} onChange={(v)=>setEdit({...edit,priceMaxCents:v})}/></Field>}
               <Field label="Durata base (min) *"><input type="number" min={5} step={5} className="input" required value={edit.durationMin} onChange={(e) => setEdit({ ...edit, durationMin: e.target.value })} /></Field>
               <Field label="Ordine"><input type="number" className="input" value={edit.sortOrder} onChange={(e) => setEdit({ ...edit, sortOrder: e.target.value })} /></Field>
+              <Field label="Immagine (URL facoltativo)" className="sm:col-span-3"><input className="input" type="url" value={edit.imageUrl || ""} onChange={(e)=>setEdit({...edit,imageUrl:e.target.value})} placeholder="https://…" /></Field>
             </div>
             <div className="flex flex-wrap gap-4">
-              <Check checked={edit.priceFrom} onChange={(v) => setEdit({ ...edit, priceFrom: v })} label='Mostra "da" davanti al prezzo' />
               <Check checked={edit.active} onChange={(v) => setEdit({ ...edit, active: v })} label="Attivo" />
               <Check checked={edit.visible} onChange={(v) => setEdit({ ...edit, visible: v })} label="Visibile sul sito" />
-              <Check checked={edit.bookable} onChange={(v) => setEdit({ ...edit, bookable: v })} label="Richiedibile on line" />
+              <Check checked={edit.bookable} onChange={(v) => setEdit({ ...edit, bookable: v })} label="Richiedibile online" />
               <Check checked={edit.earnsPoints !== false} onChange={(v) => setEdit({ ...edit, earnsPoints: v })} label="Genera punti Fidelity" />
+            </div>
+            <div>
+              <div className="mb-2 flex items-center justify-between"><p className="label">Regole tariffarie per taglia e mantello</p><button type="button" className="btn-outline btn-sm" onClick={()=>setEdit({...edit,pricingRules:[...edit.pricingRules,{size:null,coatType:null,coatLength:null,pricingType:"da",priceCents:null,priceMaxCents:null,percentageBasisPoints:null,durationMin:null,active:true}]})}><Plus size={14}/> Aggiungi regola</button></div>
+              <p className="mb-3 text-xs text-slate-500">Una regola può valere per tutte le taglie o per una combinazione precisa. Il listino di riferimento non viene pubblicato automaticamente; servizi e prezzi diventano pubblici solo quando li abiliti.</p>
+              <div className="space-y-2">{edit.pricingRules.map((rule:any,i:number)=><div key={i} className="grid gap-2 rounded-xl border border-slate-200 p-3 sm:grid-cols-2 xl:grid-cols-7">
+                <select className="input" aria-label="Taglia" value={rule.size||""} onChange={e=>{const a=[...edit.pricingRules];a[i]={...rule,size:e.target.value||null};setEdit({...edit,pricingRules:a});}}><option value="">Tutte le taglie</option>{SIZES.map(s=><option key={s} value={s}>{SIZE_LABELS[s]}</option>)}</select>
+                <select className="input" aria-label="Lunghezza pelo" value={rule.coatLength||""} onChange={e=>{const a=[...edit.pricingRules];a[i]={...rule,coatLength:e.target.value||null};setEdit({...edit,pricingRules:a});}}><option value="">Tutte le lunghezze</option>{[["corto","Corto"],["medio","Medio"],["lungo","Lungo"]].map(([v,l])=><option key={v} value={v}>{l}</option>)}</select>
+                <select className="input" aria-label="Tipo pelo" value={rule.coatType||""} onChange={e=>{const a=[...edit.pricingRules];a[i]={...rule,coatType:e.target.value||null};setEdit({...edit,pricingRules:a});}}><option value="">Tutti i tipi pelo</option>{["liscio","mosso","riccio","altro"].map(v=><option key={v} value={v}>{v}</option>)}</select>
+                <select className="input" aria-label="Tipo prezzo regola" value={rule.pricingType||"da"} onChange={e=>{const a=[...edit.pricingRules];a[i]={...rule,pricingType:e.target.value};setEdit({...edit,pricingRules:a});}}>{["fisso","da","fascia","orario","percentuale","preventivo"].map(v=><option key={v} value={v}>{v}</option>)}</select>
+                {rule.pricingType==="percentuale"?<input className="input" type="number" min={0} max={100000} step={100} aria-label="Punti base percentuale" placeholder="5000 = 50%" value={rule.percentageBasisPoints||""} onChange={e=>{const a=[...edit.pricingRules];a[i]={...rule,percentageBasisPoints:e.target.value?Number(e.target.value):null};setEdit({...edit,pricingRules:a});}}/>:<MoneyInput value={rule.priceCents} onChange={v=>{const a=[...edit.pricingRules];a[i]={...rule,priceCents:v};setEdit({...edit,pricingRules:a});}}/>}
+                {rule.pricingType==="fascia"?<MoneyInput value={rule.priceMaxCents} onChange={v=>{const a=[...edit.pricingRules];a[i]={...rule,priceMaxCents:v};setEdit({...edit,pricingRules:a});}}/>:<input className="input" type="number" min={5} max={600} step={5} aria-label="Durata regola in minuti" placeholder="minuti" value={rule.durationMin||""} onChange={e=>{const a=[...edit.pricingRules];a[i]={...rule,durationMin:e.target.value||null};setEdit({...edit,pricingRules:a});}}/>}
+                <button type="button" className="btn-ghost text-red-600" aria-label="Rimuovi regola" onClick={()=>setEdit({...edit,pricingRules:edit.pricingRules.filter((_:any,j:number)=>j!==i)})}><X size={16}/></button>
+              </div>)}</div>
             </div>
             <div>
               <p className="label">Varianti per taglia (vuoto = usa prezzo/durata base)</p>
@@ -111,6 +159,34 @@ export function Services() {
       </Modal>
     </div>
   );
+}
+
+function HourlyRateSettings() {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const { data: settings, isLoading } = useQuery<any>({ queryKey: ["admin-settings"], queryFn: () => get("/api/admin/settings") });
+  const [rate, setRate] = useState<number | null>(null);
+  const [busy, setBusy] = useState(false);
+  const current = rate ?? settings?.pricing?.hourlyRateCents ?? 5000;
+  const save = async () => {
+    setBusy(true);
+    try {
+      await put("/api/admin/settings/pricing", { hourlyRateCents: current });
+      await qc.invalidateQueries({ queryKey: ["admin-settings"] });
+      toast("Tariffa oraria aggiornata");
+      setRate(null);
+    } catch (e: any) { toast(e.message || "Salvataggio non riuscito", "err"); }
+    finally { setBusy(false); }
+  };
+  if (isLoading) return <Spinner />;
+  return <section className="card max-w-2xl">
+    <h2 className="text-lg font-bold">Tariffa oraria di riferimento</h2>
+    <p className="mt-1 text-sm text-slate-600">Usata dalle prestazioni configurate “a ora” (per esempio preparazione per esposizione). Puoi modificarla qui: il valore aggiornato non altera le richieste già inviate.</p>
+    <div className="mt-4 flex flex-wrap items-end gap-3">
+      <Field label="Euro all’ora"><MoneyInput value={current} onChange={setRate} /></Field>
+      <button className="btn-primary min-h-11" disabled={busy||rate===null} onClick={save}>{busy?"Salvataggio…":"Salva tariffa"}</button>
+    </div>
+  </section>;
 }
 
 export function Operators() {
@@ -144,7 +220,7 @@ export function Operators() {
             <div key={o.id} className={`card ${!o.active ? "opacity-60" : ""}`}>
               <div className="flex items-start justify-between">
                 <div className="flex items-center gap-3"><span className="grid h-11 w-11 place-items-center rounded-full font-bold text-white" style={{ background: o.color }}>{o.name[0]}</span>
-                  <div><h3 className="text-lg font-bold">{o.name}</h3><p className="text-xs text-slate-500">{euro(o.hourlyRateCents)}/ora · {o.bookableOnline ? "prenotabile on line" : "solo dal salone"}</p></div></div>
+                  <div><h3 className="text-lg font-bold">{o.name}</h3><p className="text-xs text-slate-500">{euro(o.hourlyRateCents)}/ora · {o.bookableOnline ? "prenotabile online" : "solo dal salone"}</p></div></div>
                 <button className="btn-ghost btn-sm" onClick={() => open(o)}><Pencil size={14} /></button>
               </div>
               <ul className="mt-3 space-y-0.5 text-sm">{o.shifts.map((s: any) => <li key={s.id}><b className="inline-block w-24">{WEEKDAYS[s.weekday]}</b>{s.startTime}–{s.endTime}{s.breakStart && <span className="text-xs text-slate-500"> (pausa {s.breakStart}–{s.breakEnd})</span>}</li>)}</ul>
@@ -200,7 +276,7 @@ export function Availability() {
   const { data: ops } = useAdminOperators();
   return (
     <div>
-      <PageTitle title="Turni e disponibilità" subtitle="Le richieste on line rispettano turni, pause, ferie, chiusure, griglia e intervalli" />
+      <PageTitle title="Turni e disponibilità" subtitle="Le richieste online rispettano turni, pause, ferie, chiusure, griglia ed intervalli" />
       <Tabs value={tab} onChange={setTab} items={[{ value: "turni", label: "Quadro turni" }, { value: "assenze", label: "Ferie, assenze e chiusure" }, { value: "griglia", label: "Griglia e intervalli" }, { value: "risorse", label: "Postazioni" }]} />
       {tab === "turni" && (
         <div className="overflow-x-auto rounded-2xl border bg-white">
@@ -228,7 +304,7 @@ export function Availability() {
       {tab === "griglia" && <SettingsForm section="booking" title="Griglia oraria e regole delle richieste" fields={[
         { key: "slotMinutes", label: "Griglia oraria (minuti)", type: "number", hint: "15, 30, 45, 60 o qualsiasi intervallo personalizzato" },
         { key: "bufferMin", label: "Intervallo tra appuntamenti (minuti)", type: "number" },
-        { key: "minNoticeHours", label: "Preavviso minimo richieste on line (ore)", type: "number" },
+        { key: "minNoticeHours", label: "Preavviso minimo richieste online (ore)", type: "number" },
         { key: "maxDaysAhead", label: "Giorni richiedibili in anticipo", type: "number" },
         { key: "requestBlocksSlot", label: "Le richieste in attesa occupano lo slot (evita doppie richieste)", type: "checkbox" },
         { key: "allowAnyOperator", label: "Consenti 'Nessuna preferenza' sull'operatore", type: "checkbox" },

@@ -92,14 +92,14 @@ export function Footer() {
   const B = useBusiness();
   const legal={...LEGAL_DEFAULTS,...s?.legal};
   return (
-    <footer className="bg-brand-navy text-white">
+    <footer className="public-footer bg-brand-navy text-white">
       <div className="container-dp grid grid-cols-2 gap-x-6 gap-y-8 py-10 lg:grid-cols-4">
         <div className="col-span-2 flex items-center gap-5 lg:col-span-1 lg:block">
           <Logo white className="h-14 shrink-0 lg:h-16" />
           <p className="max-w-xs text-xs leading-relaxed text-sky-100 lg:mt-4">Toelettatura professionale per cani a Cernusco sul Naviglio.</p>
         </div>
         <div className="col-span-2 sm:col-span-1">
-          <h3 className="mb-3 font-display text-sm font-bold uppercase tracking-wider text-[#3fd5e4]">Negozio e contatti clienti</h3>
+          <h3 className="mb-3 font-display text-sm font-bold uppercase tracking-wider text-[#3fd5e4]">Negozio e contatti</h3>
           <ul className="space-y-2 text-sm">
             <li><a className="flex items-center gap-2 hover:underline" href={`tel:${B.phoneIntl}`}><Phone size={16} /> {B.phone}</a></li>
             <li><a className="flex items-center gap-2 hover:underline" href={`https://wa.me/${B.whatsapp}`} target="_blank" rel="noreferrer"><MessageCircle size={16} /> WhatsApp</a></li>
@@ -123,7 +123,6 @@ export function Footer() {
             <li><Link href="/cookie-policy" className="hover:underline">Cookie Policy</Link></li>
             <li><Link href="/condizioni-del-servizio" className="hover:underline">Condizioni del servizio</Link></li>
             <li><Link href="/installa-app" className="hover:underline">Installa l'app sul telefono</Link></li>
-            <li><Link href="/admin" className="inline-flex min-h-11 items-center hover:underline">Admin</Link></li>
             <li><button className="min-h-11 text-left hover:underline" onClick={() => window.dispatchEvent(new Event("dp-cookie-open"))}>Gestisci preferenze cookie</button></li>
             {s?.site?.socialInstagram && <li><a href={s.site.socialInstagram} target="_blank" rel="noreferrer" className="hover:underline">Instagram</a></li>}
             {s?.site?.socialFacebook && <li><a href={s.site.socialFacebook} target="_blank" rel="noreferrer" className="hover:underline">Facebook</a></li>}
@@ -132,11 +131,8 @@ export function Footer() {
       </div>
       <div className="border-t border-white/15">
         <div data-legal-footer className="container-dp py-5 text-xs leading-6 text-sky-100">
-          <p><strong className="text-white">{legal.companyName}</strong> · {legal.legalForm} · Titolare {legal.owner}</p>
-          <p><strong>Sede legale:</strong> {legal.registeredOffice}</p>
-          <p className="break-words">REA {legal.rea} · CF e n. iscrizione Registro Imprese {legal.taxCode}{legal.vatNumber&&<> · P.IVA {legal.vatNumber}</>}</p>
-          <p>PEC: <a className="break-all underline" href={`mailto:${legal.pec}`}>{legal.pec}</a></p>
-          {!legal.vatNumber&&<p className="mt-1 text-amber-200">Informazioni legali in preparazione: Partita IVA da acquisire dal titolare prima della pubblicazione finale.</p>}
+          <p><strong className="text-white">Dog's Planet</strong> – {B.fullAddress}{legal.vatNumber && <> · P.IVA {legal.vatNumber}</>}</p>
+          <Link href="/privacy-policy" className="inline-flex min-h-11 items-center underline">Informazioni legali ed informativa privacy</Link>
           <p className="mt-2 text-sky-200">© {new Date().getFullYear()} Dog's Planet – Pet Grooming · Realizzato da Promo App</p>
         </div>
       </div>

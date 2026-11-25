@@ -18,16 +18,20 @@ export async function logEvent(tx: any, appointmentId: number, actorId: number |
 }
 
 /** Richiesta di prenotazione del cliente: NON è mai una prenotazione definitiva. */
-export async function quoteServices(serviceIds: number[], dog?: Pick<Dog, "size" | "coatKnots" | "coatShedding" | "aggressive"> | null, tx: any = db) {
+export async function quoteServices(serviceIds: number[], dog?: Pick<Dog, "size" | "coatKnots" | "coatShedding" | "aggressive"> & Partial<Pick<Dog, "species" | "coatType" | "coatLength">> | null, tx: any = db) {
   const ids = [...new Set(serviceIds)];
   if (!ids.length || ids.length > 10 || ids.length !== serviceIds.length) throw new HttpError(400, "Seleziona da uno a dieci servizi diversi");
   const quotes = await Promise.all(ids.map((serviceId) => quote(serviceId, dog, tx)));
+  if (dog?.species && quotes.some((q) => q.service.species !== "entrambi" && q.service.species !== dog.species)) {
+    throw new HttpError(400, "Uno dei servizi selezionati non è previsto per la specie dell’animale");
+  }
   if (quotes.some((q) => !q.service.bookable || !q.service.visible)) throw new HttpError(400, "Uno dei servizi selezionati non è prenotabile online");
   const operators = await compatibleOperatorsForServices(ids, true, tx);
   if (!operators.length) throw new HttpError(409, "Nessun operatore è abilitato a tutti i servizi selezionati");
   return {
     serviceIds: ids,
     services: quotes.map((q) => q.service),
+    servicePriceSnapshot: quotes.map((q) => q.priceSnapshot),
     durationMin: quotes.reduce((n, q) => n + q.durationMin, 0),
     estimatedPriceCents: quotes.some((q) => q.estimatedPriceCents == null) ? null : quotes.reduce((n, q) => n + (q.estimatedPriceCents || 0), 0),
     supplements: quotes.flatMap((q) => q.supplements),
@@ -65,6 +69,7 @@ export async function createRequest(customerId: number, input: {
           startAt: input.start, endAt: new Date(input.start.getTime() + qt.durationMin * 60_000), durationMin: qt.durationMin,
           status: "richiesta", customerNotes: input.notes || null, alternativeAvailability: input.alternativeAvailability || null,
           estimatedPriceCents: qt.estimatedPriceCents, privacyAcknowledgedAt: new Date(), privacyVersion: input.privacyVersion,
+          servicePriceSnapshot: qt.servicePriceSnapshot,
           privacyAcknowledgementProof: "presa_visione_informativa_privacy", privacyRequestIp: input.privacyIp, privacyUserAgent: input.privacyUserAgent,
           marketingConsent:input.marketing,marketingConsentAt:input.marketing?new Date():null,
           marketingConsentProof:input.marketing?"consenso_marketing_esplicito":null,requestKey:input.requestKey,
@@ -153,7 +158,7 @@ export async function applyAction(appointmentId: number, actor: { id: number; ro
   let lateCancel = false;
   if (input.action === "annulla" && !["richiesta", "in_valutazione"].includes(a.status)) {
     lateCancel = !withinDeadline(a.startAt, settings.cancellation.cancelHours);
-    if (isCustomer && lateCancel) throw new HttpError(400, `Il termine per annullare on line è di ${settings.cancellation.cancelHours} ore prima: invia una richiesta al salone`);
+    if (isCustomer && lateCancel) throw new HttpError(400, `Il termine per annullare online è di ${settings.cancellation.cancelHours} ore prima: invia una richiesta al salone`);
   }
   if (input.action === "annulla" && !isCustomer && !input.reason) throw new HttpError(400, "Indica il motivo dell'annullamento");
   if (input.force && actor.role !== "admin") throw new HttpError(403, "Solo l'amministratore può forzare sovrapposizioni o orari fuori turno");

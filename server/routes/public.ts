@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { publicReviews } from "../services/reviews";
 import rateLimit from "express-rate-limit";
 import multer from "multer";
 import crypto from "node:crypto";
@@ -6,7 +7,7 @@ import { z } from "zod";
 import { and, asc, eq, gte, isNull, lte, or, sql } from "drizzle-orm";
 import { db } from "../db";
 import {
-  pages, faqs, services, serviceVariants, serviceSupplements, operators, operatorServices, operatorShifts, products, promotions, dogs, cookieChoices,
+  pages, faqs, services, serviceCategories, serviceVariants, serviceSupplements, servicePricingRules, operators, operatorServices, operatorShifts, products, promotions, dogs, cookieChoices,
 } from "../../shared/schema";
 import { publicSettings } from "../services/settings";
 import { availability, quote } from "../services/availability";
@@ -31,6 +32,9 @@ const guestBookingLimiter=rateLimit({windowMs:60*60_000,limit:5,standardHeaders:
 r.use((req, res, next) => { if (req.method === "GET") res.set("Cache-Control", "public, max-age=60"); next(); });
 
 r.get("/settings", h(async (_req, res) => res.json(await publicSettings())));
+r.get("/reviews", h(async (_req, res) => {
+  res.set("Cache-Control", "no-store").json(await publicReviews());
+}));
 
 r.get("/cookie-config",h(async(_req,res)=>{
   res.set("Cache-Control","no-store");res.json(await cookieConfiguration());
@@ -59,20 +63,36 @@ r.get("/faqs", h(async (req, res) => {
   res.json(await db.select().from(faqs).where(and(eq(faqs.section, section), eq(faqs.active, true))).orderBy(asc(faqs.sortOrder), asc(faqs.id)));
 }));
 
-r.get("/services", h(async (_req, res) => {
-  const [svcs, vars, sups, links, ops] = await Promise.all([
+r.get("/services", h(async (req, res) => {
+  res.set("Cache-Control", "no-store");
+  const catalogView = req.query.view === "catalog";
+  const [svcs, categories, vars, sups, links, ops, rules, hourlyRateCents] = await Promise.all([
     db.select().from(services).where(and(eq(services.active, true), eq(services.visible, true))).orderBy(asc(services.sortOrder), asc(services.id)),
+    db.select().from(serviceCategories).where(and(eq(serviceCategories.active, true), eq(serviceCategories.visible, true))),
     db.select().from(serviceVariants),
     db.select().from(serviceSupplements).where(eq(serviceSupplements.active, true)),
     db.select().from(operatorServices),
     db.select({ id: operators.id, name: operators.name, color: operators.color }).from(operators).where(and(eq(operators.active, true), eq(operators.bookableOnline, true))),
+    db.select().from(servicePricingRules).where(eq(servicePricingRules.active, true)).orderBy(asc(servicePricingRules.sortOrder)),
+    getSettings().then((settings) => settings.pricing.hourlyRateCents),
   ]);
   const opIds = new Set(ops.map((o) => o.id));
-  res.json(svcs.map((s) => ({
+  const categoryOrder = new Map(categories.map((category) => [category.name, category.sortOrder]));
+  const listedServices = svcs
+    .filter((s) => !catalogView || categoryOrder.has(s.category))
+    .filter((s) => !catalogView || s.name.trim().toLocaleLowerCase() !== s.category.trim().toLocaleLowerCase()
+      || s.priceCents != null || vars.some((v) => v.serviceId === s.id && v.priceCents != null)
+      || rules.some((rule) => rule.serviceId === s.id && rule.priceCents != null))
+    .sort((a, b) => (categoryOrder.get(a.category) ?? 9999) - (categoryOrder.get(b.category) ?? 9999) || a.sortOrder - b.sortOrder || a.id - b.id);
+  res.json(listedServices.map((s) => ({
     ...s,
+    ...(s.pricingType === "orario" ? { hourlyRateCents } : {}),
+    categorySortOrder: categoryOrder.get(s.category) ?? 9999,
     variants: vars.filter((v) => v.serviceId === s.id),
-    supplements: sups.filter((x) => x.serviceId === s.id || x.serviceId == null).map(({ name, priceCents, condition }) => ({ name, priceCents, condition })),
-    operatorIds: links.filter((l) => l.serviceId === s.id && opIds.has(l.operatorId)).map((l) => l.operatorId),
+    pricingRules: rules.filter((v) => v.serviceId === s.id),
+    supplements: sups.filter((x) => x.serviceId === s.id || x.serviceId == null)
+      .map(({ id, serviceId, name, priceCents, pricingType, percentageBasisPoints }) => ({ id, serviceId, name, priceCents, pricingType, percentageBasisPoints })),
+    ...(!catalogView ? { operatorIds: links.filter((l) => l.serviceId === s.id && opIds.has(l.operatorId)).map((l) => l.operatorId) } : {}),
   })));
 }));
 

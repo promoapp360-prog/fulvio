@@ -7,7 +7,7 @@ Il titolare del trattamento è **LUCARELLI FULVIO**, **impresa individuale**, ti
 Sede legale: **Via Firenze 10, Frazione Seggiano, 20096 Pioltello (MI), Italia**.
 PEC: **fulvio.lucarelli@pec.it**. REA: **MI - 1915860**. Codice fiscale e numero di iscrizione al Registro Imprese comunicato: **LCRFLV82E19F205P**.
 
-Sede operativa, distinta dalla sede legale: **Dog's Planet, Via Leonardo da Vinci 86, Cernusco sul Naviglio (MI)**. Contatti clienti e per esercitare i diritti: **dogsplanetcernusco@gmail.com**, telefono/WhatsApp **389 9082610**; è possibile usare anche la PEC indicata sopra.
+Sede operativa, distinta dalla sede legale: **Dog's Planet, Via Leonardo da Vinci 86, Cernusco sul Naviglio (MI)**. Contatti clienti e per esercitare i diritti: **info@dogsplanet.it**, telefono/WhatsApp **389 9082610**; è possibile usare anche la PEC indicata sopra.
 
 La Partita IVA non è stata fornita: deve essere richiesta al titolare e aggiunta prima della pubblicazione finale. Il codice fiscale non viene presentato come P.IVA. Non viene indicato un DPO perché designazione e recapiti non sono stati comunicati.
 
@@ -26,7 +26,7 @@ Il sistema tratta inoltre dati tecnici strettamente necessari a sicurezza e funz
 - **Notifiche push:** canale facoltativo per conferme e promemoria, attivabile su azione esplicita e con permesso del dispositivo quando supportato. Preferenza e autorizzazione possono essere revocate; il rifiuto non impedisce il servizio. La scelta facoltativa del canale è distinta dal trattamento contrattuale; per usi fondati sul consenso si applica art. 6.1.a. La consegna push non è garantita.
 - **Fidelity:** gestione del programma su richiesta dell’aderente, punti e vantaggi secondo le relative condizioni, art. 6.1.b. L’adesione non autorizza automaticamente il marketing.
 - **Richieste pensione:** valutazione e gestione della richiesta e del servizio, art. 6.1.b; nessuna conferma automatica.
-- **Futuri ordini/shop:** LaPappadiPoppy è Coming Soon e gli acquisti pubblici non sono attivi. Prima dell’apertura vanno completate informazioni su ordini, consegna, destinatari, pagamenti e conservazione. Non si dichiara attivo un trattamento di acquisto solo perché il backend è predisposto.
+- **Futuri ordini/shop:** #LaPappadiPoppy è Coming Soon e gli acquisti pubblici non sono attivi. Prima dell’apertura vanno completate informazioni su ordini, consegna, destinatari, pagamenti e conservazione. Non si dichiara attivo un trattamento di acquisto solo perché il backend è predisposto.
 - **Marketing:** soltanto per finalità e canali specificamente illustrati e autorizzati con scelta separata, facoltativa e non preselezionata, art. 6.1.a, salvo altra base realmente applicabile e documentata. Rifiuto e revoca non bloccano le richieste. Nessuna cessione a terzi per marketing è prevista da questo testo.
 - **Sicurezza, prevenzione abusi e prova delle scelte:** protezione del servizio e dimostrazione degli adempimenti, obblighi applicabili e legittimo interesse proporzionato del titolare, artt. 6.1.c/f, da documentare. Non sono previste decisioni automatizzate con effetti giuridici o profilazione per approvare la prenotazione.
 
@@ -63,7 +63,7 @@ export const COOKIE_DRAFT = `**BOZZA DA CONVALIDARE — Inventario tecnico dell�
 ## Titolare e contatti
 **LUCARELLI FULVIO**, impresa individuale, titolare Fulvio Lucarelli. Sede legale: **Via Firenze 10, Frazione Seggiano, 20096 Pioltello (MI), Italia**. PEC: **fulvio.lucarelli@pec.it**. REA **MI - 1915860**; CF e numero iscrizione Registro Imprese comunicato **LCRFLV82E19F205P**. La Partita IVA è da acquisire, non coincide con il CF qui indicato.
 
-Negozio: Dog's Planet, Via Leonardo da Vinci 86, Cernusco sul Naviglio (MI); **389 9082610**, **dogsplanetcernusco@gmail.com**.
+Negozio: Dog's Planet, Via Leonardo da Vinci 86, Cernusco sul Naviglio (MI); **389 9082610**, **info@dogsplanet.it**.
 
 ## Che cosa viene memorizzato
 Cookie e altri archivi sul dispositivo sono distinti dai dati conservati nel database. I tecnici necessari non richiedono un consenso per la loro funzione, ma questa informativa. Statistiche, pubblicità e altri tracciamenti non necessari richiedono scelta preventiva e separata.

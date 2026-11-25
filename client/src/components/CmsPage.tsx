@@ -5,6 +5,7 @@ import ExternalContentGate from "./ExternalContentGate";
 import { useQuery } from "@tanstack/react-query";
 import { get } from "@/lib/api";
 import type { CookieConfig } from "@/lib/cookies";
+import { publicText } from "@shared/public-copy";
 
 export function PageHero({ title, subtitle, mascot }: { title: string; subtitle?: string | null; mascot?: MascotKind }) {
   return (
@@ -21,18 +22,18 @@ export function PageHero({ title, subtitle, mascot }: { title: string; subtitle?
 }
 
 /** Pagina con contenuti modificabili dal gestionale (Contenuti del sito). */
-export default function CmsPage({ slug, mascot, children, fallbackTitle, title, subtitle }: { slug: string; mascot?: MascotKind; children?: React.ReactNode; fallbackTitle?: string; title?: string; subtitle?: string }) {
+export default function CmsPage({ slug, mascot, children, fallbackTitle, title, subtitle, hideBody = false, hideMedia = false }: { slug: string; mascot?: MascotKind; children?: React.ReactNode; fallbackTitle?: string; title?: string; subtitle?: string; hideBody?: boolean; hideMedia?: boolean }) {
   const { data, isLoading } = usePage(slug);
   if (isLoading) return <Spinner />;
   return (
     <>
-      <PageHero title={title ?? data?.title ?? fallbackTitle ?? ""} subtitle={subtitle ?? data?.subtitle} mascot={mascot} />
+      <PageHero title={publicText(title ?? data?.title ?? fallbackTitle ?? "")} subtitle={publicText(subtitle ?? data?.subtitle ?? "")} mascot={mascot} />
       <div className="container-dp py-10">
         {["privacy-policy","cookie-policy"].includes(slug)&&<aside className="mb-6 max-w-3xl rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-relaxed text-amber-950"><b>Bozza da convalidare.</b> Documento informativo in preparazione, non consulenza legale né attestazione di conformità. Il titolare deve verificare i punti mancanti prima della pubblicazione finale.</aside>}
-        {data?.imageUrl && <img src={data.imageUrl} alt={data.title} className="mb-8 h-auto max-h-96 w-full rounded-3xl object-contain" loading="lazy" />}
-        {data?.body && <Markdown text={data.body} className="max-w-3xl" />}
+        {!hideMedia && data?.imageUrl && <img src={data.imageUrl} alt={data.title} className="mb-8 h-auto max-h-96 w-full rounded-3xl object-contain" loading="lazy" />}
+        {!hideBody && data?.body && <Markdown text={publicText(data.body)} className="max-w-3xl" />}
         {slug==="cookie-policy"&&<LiveCookieInventory/>}
-        {data?.videoUrl && <VideoEmbed url={data.videoUrl} />}
+        {!hideMedia && data?.videoUrl && <VideoEmbed url={data.videoUrl} />}
         {children}
       </div>
     </>

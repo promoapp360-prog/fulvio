@@ -3,7 +3,7 @@ import { Link, Route, Switch, useLocation, Redirect } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import {
   LayoutDashboard, CalendarDays, Inbox, Users, Scissors, UserCog, Clock, Wallet, Droplets, Star, Package, Boxes, Truck, ShoppingCart,
-  Home, FileText, Megaphone, BarChart3, ShieldCheck, Settings, Menu, X, LogOut, Globe, Dog, Tags, CalendarClock, HandCoins, Percent, Search,
+  Home, FileText, Megaphone, BarChart3, ShieldCheck, Settings, Menu, X, LogOut, Globe, Dog, CalendarClock, HandCoins, Percent, Search,
 } from "lucide-react";
 import { Logo } from "@/components/brand";
 import { Spinner, Empty } from "@/components/ui";
@@ -12,7 +12,7 @@ import { useMe, useLogout, can, isStaffRole } from "@/lib/auth";
 import Dashboard from "./Dashboard";
 import Agenda, { Requests } from "./Agenda";
 import { Customers, CustomerDetail, DogsPage } from "./Crm";
-import { Services, PriceList, Operators, Availability } from "./Catalog";
+import { Services, Operators, Availability } from "./Catalog";
 import { Worklogs, Settlements, Users as StaffUsers } from "./Staff";
 import { Payments, SelfService, Loyalty } from "./Money";
 import { Products, Stock, Suppliers, Orders, Boarding } from "./Shop";
@@ -26,9 +26,8 @@ const MENU: { href: string; label: string; icon: any; perm: string[]; group: str
   { href: "/admin/agenda", label: "Agenda", icon: CalendarDays, perm: ["agenda_view"], group: "Appuntamenti" },
   { href: "/admin/richieste", label: "Richieste prenotazioni", icon: Inbox, perm: ["richieste"], group: "Appuntamenti" },
   { href: "/admin/clienti", label: "Clienti", icon: Users, perm: ["clienti"], group: "Clienti" },
-  { href: "/admin/cani", label: "Schede cani", icon: Dog, perm: ["clienti"], group: "Clienti" },
-  { href: "/admin/servizi", label: "Servizi", icon: Scissors, perm: ["servizi", "impostazioni"], group: "Salone" },
-  { href: "/admin/listino", label: "Listino", icon: Tags, perm: ["servizi", "impostazioni"], group: "Salone" },
+  { href: "/admin/cani", label: "Schede animali", icon: Dog, perm: ["clienti"], group: "Clienti" },
+  { href: "/admin/servizi", label: "Gestione prestazioni e listino", icon: Scissors, perm: ["servizi", "impostazioni"], group: "Salone" },
   { href: "/admin/operatori", label: "Operatori", icon: UserCog, perm: ["personale"], group: "Salone" },
   { href: "/admin/turni", label: "Turni e disponibilità", icon: CalendarClock, perm: ["personale"], group: "Salone" },
   { href: "/admin/ore", label: "Ore lavorate", icon: Clock, perm: ["personale", "agenda_view"], group: "Personale" },
@@ -111,7 +110,7 @@ export default function AdminArea() {
             <Route path="/admin/clienti"><Guard perm="clienti"><Customers /></Guard></Route>
             <Route path="/admin/cani"><Guard perm="clienti"><DogsPage /></Guard></Route>
             <Route path="/admin/servizi"><Guard perm="servizi,impostazioni"><Services /></Guard></Route>
-            <Route path="/admin/listino"><Guard perm="servizi,impostazioni"><PriceList /></Guard></Route>
+            <Route path="/admin/listino"><Guard perm="servizi,impostazioni"><Services /></Guard></Route>
             <Route path="/admin/operatori"><Guard perm="personale"><Operators /></Guard></Route>
             <Route path="/admin/turni"><Guard perm="personale"><Availability /></Guard></Route>
             <Route path="/admin/ore"><Guard perm="personale,agenda_view"><Worklogs /></Guard></Route>

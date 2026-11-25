@@ -14,6 +14,7 @@ import { emailTemplates } from "../../../shared/schema";
 import { DEFAULT_TEMPLATES } from "../../services/templates";
 import { sendTemplate } from "../../services/email";
 import { legalSettingsSchema } from "../../../shared/legal";
+import { reviewSettingsSchema, webUrl } from "../../../shared/reviews";
 
 const r = Router();
 const upload = multer({
@@ -96,13 +97,19 @@ r.put("/settings/:key", h(async (req, res) => {
   const key = req.params.key as SettingsKey;
   if (!(key in DEFAULT_SETTINGS)) throw new HttpError(404, "Sezione impostazioni inesistente");
   // contenuti del sito modificabili da chi gestisce i contenuti, il resto da chi gestisce le impostazioni
-  const perm = ["site", "seo", "selfservice", "brand"].includes(key) ? "contenuti" : key === "staff" ? "personale" : key === "loyalty" ? "fidelity" : "impostazioni";
+  const perm = ["site", "seo", "selfservice", "brand", "reviews"].includes(key) ? "contenuti" : key === "staff" ? "personale" : key === "loyalty" ? "fidelity" : "impostazioni";
   const u = req.user!;
   if (u.role !== "admin" && !(u.permissions || []).includes(perm)) throw new HttpError(403, "Permesso negato");
   if (key === "payments" && u.role !== "admin") throw new HttpError(403, "Solo l'amministratore modifica i pagamenti");
   const body = z.record(z.unknown()).parse(req.body);
   const allowed = Object.keys((DEFAULT_SETTINGS as any)[key]);
   const clean = Object.fromEntries(Object.entries(body).filter(([k]) => allowed.includes(k)));
+  if (key === "reviews") Object.assign(clean, reviewSettingsSchema.partial().parse(clean));
+  if (key === "site") {
+    for (const field of ["socialInstagram", "socialFacebook", "socialYoutube", "socialTiktok"]) {
+      if (field in clean) clean[field] = webUrl.parse(clean[field]);
+    }
+  }
   if(key==="legal"){
     const validated=legalSettingsSchema.parse(clean);
     Object.assign(clean,validated);
@@ -115,6 +122,7 @@ r.put("/settings/:key", h(async (req, res) => {
     Object.assign(clean, b);
   }
   if (key === "staff") Object.assign(clean, z.object({ roundingStep: z.number().int().min(1).max(60), roundingMode: z.enum(["vicino", "difetto", "eccesso"]), payWeekday: z.number().int().min(0).max(6) }).partial().parse(clean));
+  if (key === "pricing") Object.assign(clean, z.object({ hourlyRateCents: z.number().int().min(0).max(100_000) }).partial().parse(clean));
   if (key === "loyalty") Object.assign(clean, z.object({
     enabled: z.boolean(), pointsPerEuro: z.number().min(0).max(100), welcomePoints: z.number().int().min(0), birthdayPoints: z.number().int().min(0), earnOnServices: z.boolean(), earnOnProducts: z.boolean(),
     pointValueCents: z.number().int().min(0).max(10_000), minRedeemPoints: z.number().int().min(0), expiryMode: z.enum(["nessuna", "annuale", "fissa", "periodo"]),

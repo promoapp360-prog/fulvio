@@ -45,6 +45,8 @@ test("multiple coat conditions and multiple services are accepted",()=>{
 });
 
 test("weight estimates a service size without modifying the dog profile",()=>{
+  assert.equal(sizeFromWeight(3),"mini");
+  assert.equal(sizeFromWeight(5),"mini");
   assert.equal(sizeFromWeight(8),"piccola");
   assert.equal(sizeFromWeight(20),"media");
   assert.equal(sizeFromWeight(35),"grande");

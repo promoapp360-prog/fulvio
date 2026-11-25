@@ -29,7 +29,7 @@ export function Mascot({ kind, className = "h-32", alt }: { kind: MascotKind; cl
   // Il vecchio welcome è un ritaglio incompleto della brand board: non è
   // recuperabile senza inventare parti del cane. Non mostrarlo come decorazione.
   if (kind === "welcome") return null;
-  const asset = `poppy-${kind}-transparent`;
+  const asset = kind === "pet-shop" ? "poppy-lavori-transparent" : kind === "fidelity" ? "poppy-fidelity-five-stars" : `poppy-${kind}-transparent`;
   return (
     <picture className="contents">
       <source srcSet={`/brand/${asset}.webp`} type="image/webp" />

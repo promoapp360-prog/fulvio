@@ -49,7 +49,7 @@ r.get("/guest-customers/:id",requirePerm("clienti"),h(async(req,res)=>{
       .innerJoin(services,eq(services.id,guestBookings.serviceId)).leftJoin(operators,eq(operators.id,guestBookings.operatorId))
       .where(eq(guestBookings.guestCustomerId,guestCustomerId)).orderBy(desc(guestBookings.createdAt)).limit(100),
   ]);
-  res.json({customer,dogs:ds.map(({photoKey:_privatePhotoKey,...dog})=>dog),requests:requests.map(x=>x.booking).map((b,i)=>({...b,serviceName:requests[i].serviceName,operatorName:requests[i].operatorName}))});
+  res.json({customer,dogs:ds.map(({photoKey:_privatePhotoKey,...dog})=>dog),requests:requests.map(x=>x.booking).map((b,i)=>({...b,serviceName:b.servicePriceSnapshot?.map((s:any)=>s.name).filter(Boolean).join(", ")||requests[i].serviceName,operatorName:requests[i].operatorName}))});
 }));
 
 r.get("/guest-dogs/:id/photo",requirePerm("clienti","richieste"),h(async(req,res)=>{
@@ -137,7 +137,7 @@ r.get("/customers/:id", requirePerm("clienti"), h(async (req, res) => {
   const now = Date.now();
   const spentServices = pays.filter((p) => p.status === "pagato" && p.appointmentId).reduce((a, p) => a + (p.kind === "rimborso" ? -p.amountCents : p.amountCents), 0);
   const spentShop = pays.filter((p) => p.status === "pagato" && p.orderId).reduce((a, p) => a + (p.kind === "rimborso" ? -p.amountCents : p.amountCents), 0);
-  const appsOut = apps.map((x) => ({ ...x.a, serviceName: x.serviceName, operatorName: x.operatorName }));
+  const appsOut = apps.map((x) => ({ ...x.a, serviceName: x.a.servicePriceSnapshot?.map((s:any)=>s.name).filter(Boolean).join(", ")||x.serviceName, operatorName: x.operatorName }));
   res.json({
     customer: publicUser(u), dogs: ds,
     appointments: appsOut,
