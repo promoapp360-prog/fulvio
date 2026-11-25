@@ -114,7 +114,6 @@ function Appointments() {
 
   const { data: ps } = usePublicSettings();
   const cancelHours = ps?.cancellation?.cancelHours ?? 24;
-  const {data:guestRows,isLoading:guestRowsLoading}=useQuery<any[]>({queryKey:["acc-guest-records"],queryFn:()=>get("/api/account/guest-records")});
   const act = async (id: number, action: string, reason?: string) => {
     try { await post(`/api/account/appointments/${id}/action`, { action, reason }); qc.invalidateQueries({ queryKey: ["acc-apps"] }); toast("Fatto"); } catch (e: any) { toast(e.message, "err"); }
   };
@@ -123,7 +122,7 @@ function Appointments() {
     setErr(null);
     try { await post(`/api/account/appointments/${changeFor.id}/change-request`, msg); setChangeFor(null); toast("Richiesta inviata al salone"); qc.invalidateQueries({ queryKey: ["acc-apps"] }); } catch (e) { setErr(e); }
   };
-  if (isLoading||guestRowsLoading) return <Spinner />;
+  if (isLoading) return <Spinner />;
   const now = Date.now();
   const allAppointments=data||[];
   const upcoming = allAppointments.filter((a) => new Date(a.startAt).getTime() >= now && !["annullata", "rifiutata"].includes(a.status));
@@ -168,14 +167,13 @@ function Appointments() {
   );
   return (
     <div className="space-y-6">
-      <GuestRecordClaims rows={guestRows||[]} />
       <p className="text-xs text-slate-500">Puoi annullare online fino a {cancelHours} ore prima dell'appuntamento; dopo, invia una richiesta al salone. {ps?.cancellation?.depositPolicy}</p>
       <section><h2 className="mb-3 text-xl font-bold">In programma</h2>{upcoming.length ? <div className="space-y-3">{upcoming.map((a) => <Card key={a.id} a={a} />)}</div> : <Empty>Nessun appuntamento in programma.</Empty>}</section>
       {!!past.length&&<section><h2 className="mb-3 text-xl font-bold">Storico trattamenti</h2>
         <div className="overflow-x-auto"><table className="table-dp"><thead><tr><th>Data</th><th>Cane</th><th>Servizio</th><th>Operatore</th><th>Stato</th></tr></thead>
           <tbody>{past.map((a) => <tr key={a.id}><td>{fmtDateTime(a.startAt)}</td><td>{a.dogName}</td><td>{a.serviceName}</td><td>{a.operatorName || "—"}</td><td><StatusBadge status={a.status} /></td></tr>)}</tbody></table></div>
       </section>}
-      {!allAppointments.length&&!guestRows?.length&&<Empty>Non hai ancora appuntamenti. <Link href="/richiedi-prenotazione" className="font-bold underline">Richiedi la prenotazione online</Link></Empty>}
+      {!allAppointments.length&&<Empty>Non hai ancora appuntamenti. <Link href="/richiedi-prenotazione" className="font-bold underline">Richiedi la prenotazione online</Link></Empty>}
       <Modal open={!!changeFor} onClose={() => setChangeFor(null)} title="Richiesta al salone">
         <div className="space-y-3">
           <Field label="Tipo"><select className="input" value={msg.kind} onChange={(e) => setMsg({ ...msg, kind: e.target.value })}><option value="modifica">Modifica</option><option value="cancellazione">Cancellazione</option></select></Field>
@@ -186,19 +184,6 @@ function Appointments() {
       </Modal>
     </div>
   );
-}
-
-function GuestRecordClaims({rows}:{rows:any[]}){
-  const {data:me}=useMe();const qc=useQueryClient();const [busy,setBusy]=useState(false);const [message,setMessage]=useState("");const [error,setError]=useState<unknown>(null);
-  const claim=async()=>{setBusy(true);setError(null);setMessage("");try{const result=await post("/api/account/guest-records/claim",{});setMessage(result.message);await qc.invalidateQueries({queryKey:["acc-guest-records"]});await qc.invalidateQueries({queryKey:["guest-customers"]});}catch(e){setError(e);}finally{setBusy(false);}};
-  return <section className="card">
-    <h2 className="mb-1 font-bold">Richieste inviate come ospite</h2>
-    <p className="mb-3 text-sm text-slate-600">Dopo aver verificato l’email, puoi cercare le richieste fatte con lo stesso nome, email e telefono. Il collegamento è solo su tua azione: non crea un account in più e non sovrascrive le schede.</p>
-    {!me?.emailVerifiedAt?<p className="text-sm text-amber-800">Verifica prima il tuo indirizzo email per collegare eventuali richieste.</p>
-      :<button type="button" disabled={busy} className="btn-outline min-h-11" onClick={claim}>{busy?"Verifica…":"Cerca e collega le mie richieste ospite"}</button>}
-    {error!=null&&<div className="mt-2"><ErrorBox error={error}/></div>}{message&&<p role="status" className="mt-2 text-sm text-green-800">{message}</p>}
-    {!!rows.length&&<div className="mt-4 overflow-x-auto"><table className="table-dp"><thead><tr><th>Data</th><th>Cane</th><th>Servizio</th><th>Stato</th></tr></thead><tbody>{rows.map(x=><tr key={x.booking.id}><td>{fmtDateTime(x.booking.startAt)}</td><td>{x.booking.dogName}</td><td>{x.serviceName}</td><td><StatusBadge status={x.booking.status}/></td></tr>)}</tbody></table></div>}
-  </section>;
 }
 
 function Dogs() {

@@ -7,7 +7,7 @@ import { db } from "../db";
 import {
   users, dogs, dogPhotos, appointmentPhotos, dogCustomFields, appointments, services, operators, payments, loyaltyCards, loyaltyTransactions, loyaltyRewards,
   boardingRequests, orders, orderItems, products, notifications, pushSubscriptions, promotions, appointmentEvents, auditLog,
-  guestCustomers, guestBookings, guestBookingEvents, oneSignalDevices,
+  oneSignalDevices,
 } from "../../shared/schema";
 import { requireAuth, publicUser } from "../auth";
 import { createRequest, applyAction, paidTotal, logEvent, bookingAvailability } from "../services/appointments";
@@ -43,41 +43,9 @@ r.use(requireAuth);
 r.use(membershipAccountRoutes);
 const requestPhotoUpload=multer({storage:multer.memoryStorage(),limits:{fileSize:2*1024*1024,files:1}});
 const appointmentRequestLimiter=rateLimit({windowMs:60*60_000,limit:8,standardHeaders:true,legacyHeaders:false,message:{error:"Hai inviato diverse richieste. Riprova più tardi."}});
-const normalizeName=(v:string)=>v.normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim().toLocaleLowerCase("it-IT").replace(/\s+/g," ");
-
-/** L'associazione richiede accesso autenticato, email verificata e un click esplicito; non fonde né sovrascrive schede. */
-r.post("/guest-records/claim",h(async(req,res)=>{
-  const user=req.user!;
-  if(!user.emailVerifiedAt) throw new HttpError(403,"Verifica prima il tuo indirizzo email.");
-  const emailNormalized=user.email.trim().toLowerCase(),phoneNormalized=normalizePhone(user.phone);
-  if(!phoneNormalized||phoneNormalized.length<8)throw new HttpError(400,"Aggiungi un telefono al profilo prima di cercare le richieste ospite.");
-  const matched=await db.transaction(async tx=>{
-    const candidates=await tx.select().from(guestCustomers).where(or(eq(guestCustomers.emailNormalized,emailNormalized),eq(guestCustomers.phoneNormalized,phoneNormalized)));
-    const exact=candidates.filter((c:any)=>c.emailNormalized===emailNormalized&&c.phoneNormalized===phoneNormalized&&normalizeName(c.firstName)===normalizeName(user.firstName)&&normalizeName(c.lastName)===normalizeName(user.lastName));
-    const conflicts=candidates.filter((c:any)=>!exact.some((e:any)=>e.id===c.id)&&!c.linkedUserId);
-    for(const c of conflicts)await tx.update(guestCustomers).set({needsManualReview:true,reviewReason:"Possibile conflitto durante la richiesta di associazione dell’account.",updatedAt:new Date()}).where(eq(guestCustomers.id,c.id));
-    const eligible=exact.filter((c:any)=>!c.linkedUserId||c.linkedUserId===user.id);
-    let linked=0;
-    for(const c of eligible){
-      await tx.update(guestCustomers).set({linkedUserId:user.id,linkedAt:c.linkedAt||new Date(),emailVerifiedAt:c.emailVerifiedAt||new Date(),updatedAt:new Date()}).where(eq(guestCustomers.id,c.id));
-      const requests=await tx.select({id:guestBookings.id}).from(guestBookings).where(and(eq(guestBookings.guestCustomerId,c.id),or(isNull(guestBookings.claimedById),eq(guestBookings.claimedById,user.id))));
-      if(requests.length){
-        await tx.update(guestBookings).set({claimedById:user.id,claimedAt:new Date(),updatedAt:new Date()}).where(and(eq(guestBookings.guestCustomerId,c.id),or(isNull(guestBookings.claimedById),eq(guestBookings.claimedById,user.id))));
-        await tx.insert(guestBookingEvents).values(requests.map((x:any)=>({bookingId:x.id,actorId:user.id,action:"richiesta_ospite_associata_account_verificato",data:{emailVerified:true,ownerAction:true}})));
-        linked+=requests.length;
-      }
-    }
-    return {linked,manualReview:conflicts.length+exact.filter((c:any)=>c.linkedUserId&&c.linkedUserId!==user.id).length};
-  });
-  res.json({...matched,message:matched.linked?`${matched.linked} richieste ospite collegate. Le schede restano separate e non sono stati sovrascritti dati.`:"Non ci sono richieste ospite collegabili con i dati verificati del profilo."});
-}));
-
-r.get("/guest-records",h(async(req,res)=>{
-  const rows=await db.select({booking:guestBookings,serviceName:services.name}).from(guestBookings)
-    .innerJoin(services,eq(services.id,guestBookings.serviceId)).where(eq(guestBookings.claimedById,req.user!.id))
-    .orderBy(desc(guestBookings.createdAt)).limit(100);
-  res.json(rows.map(row=>({...row,serviceName:row.booking.servicePriceSnapshot?.map((s:any)=>s.name).filter(Boolean).join(", ")||row.serviceName})));
-}));
+// Compatibilità esplicita: il recupero e collegamento delle vecchie richieste ospite è disattivato.
+r.all("/guest-records", (_req, res) => res.status(410).json({ error: "Il recupero delle richieste ospite è stato disattivato." }));
+r.all("/guest-records/claim", (_req, res) => res.status(410).json({ error: "Il collegamento delle richieste ospite è stato disattivato." }));
 
 // ---------- profilo ----------
 const profileSchema = z.object({

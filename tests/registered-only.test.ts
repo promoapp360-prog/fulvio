@@ -36,6 +36,14 @@ test("lo storico CRM resta esplicitamente un archivio, non un percorso di prenot
   assert.match(source("client/src/pages/admin/Crm.tsx"), /Non permette nuove richieste o approvazioni/);
 });
 
+test("area clienti: rimosso il recupero richieste ospite e disabilitati i vecchi endpoint", () => {
+  const account = source("client/src/pages/account/Account.tsx");
+  const routes = source("server/routes/account.ts");
+  assert.doesNotMatch(account, /GuestRecordClaims|guest-records|Richieste inviate come ospite|collega le mie richieste ospite/);
+  assert.match(routes, /r\.all\("\/guest-records",.*status\(410\)/);
+  assert.match(routes, /r\.all\("\/guest-records\/claim",.*status\(410\)/);
+});
+
 test("le richieste ospite non approvate non riservano più capacità; gli impegni già confermati restano protetti", () => {
   assert.match(source("server/services/availability.ts"), /const guestStatuses = \["confermata"\]/);
 });

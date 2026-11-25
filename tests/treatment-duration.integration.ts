@@ -47,6 +47,11 @@ try {
   }
   cookie = await login(`duration-${run}-0@example.test`);
   customerCookie = await login(`duration-${run}-1@example.test`);
+  assert.equal((await call("account/guest-records", undefined, customerCookie)).status, 410);
+  const retiredClaim = await fetch("http://localhost:80/api/account/guest-records/claim", {
+    method: "POST", headers: { Cookie: customerCookie, "Content-Type": "application/json", "x-requested-with": "fetch" }, body: "{}",
+  });
+  assert.equal(retiredClaim.status, 410);
   assert.equal((await call("public/guest-slots", undefined, "")).status, 410);
   assert.equal((await call("public/guest-requests/1?token=legacy-token", undefined, "")).status, 410);
   for (const path of ["public/guest-bookings", "account/appointments"]) {
