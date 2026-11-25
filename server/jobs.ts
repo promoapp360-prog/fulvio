@@ -7,7 +7,7 @@ import { getSettings } from "./services/settings";
 import { expirePoints } from "./services/loyalty";
 import { startEmailQueue, kickQueue } from "./services/email";
 import { dateToRome, fmtRome } from "./time";
-import { nextReminderWindow, reminderDueAt, reminderKey, REMINDER_HOURS } from "./reminder-timing";
+import { nextReminderWindow, nextReminderCheckAt, reminderDueAt, reminderKey, REMINDER_HOURS } from "./reminder-timing";
 
 let running = false;
 
@@ -89,20 +89,24 @@ async function tick() {
 export function startJobs() {
   startEmailQueue().catch((e) => console.error("[email]", e.message));
   if (process.env.DISABLE_JOBS === "1") return;
-  let remindersRunning = false;
+  const scheduleReminders = (delayMs = 60_000) => {
+    const now = new Date();
+    const next = nextReminderCheckAt(now, delayMs);
+    setTimeout(reminders, Math.max(1, next.getTime() - now.getTime())).unref();
+  };
   const reminders = async () => {
-    if (remindersRunning) return;
-    remindersRunning = true;
     try {
-      await sendReminders();
+      const now = new Date();
+      // Protegge anche da callback rimaste in attesa oltre la chiusura.
+      if (nextReminderWindow(now).getTime() > now.getTime()) return;
+      await sendReminders(now);
       // Recupera anche email salvate prima di un'interruzione post-commit.
       kickQueue();
     }
     catch (error) { console.error("[jobs] promemoria:", (error as Error).message); }
-    finally { remindersRunning = false; }
+    finally { scheduleReminders(); }
   };
-  setTimeout(reminders, 1000).unref();
-  setInterval(reminders, 60_000).unref();
+  scheduleReminders(1000);
   setTimeout(tick, 60_000).unref();
   setInterval(tick, 60 * 60_000).unref();
 }

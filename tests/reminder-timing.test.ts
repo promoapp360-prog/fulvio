@@ -1,13 +1,22 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { dateToRome, romeToDate } from "../server/time";
-import { nextReminderWindow, obsoleteReminder, reminderDueAt, reminderKey } from "../server/reminder-timing";
+import { nextReminderWindow, nextReminderCheckAt, obsoleteReminder, reminderDueAt, reminderKey } from "../server/reminder-timing";
 import { DEFAULT_TEMPLATES } from "../server/services/templates";
 import { renderTemplate } from "../server/logic";
 
 const at = romeToDate;
 const early = at("2026-12-01", "09:00");
 const local = (date: Date | null) => date ? { day: dateToRome(date).day, time: dateToRome(date).time } : null;
+
+test("controlli sospesi fino alle 08:00, ogni minuto solo nella fascia di Roma", () => {
+  assert.deepEqual(local(nextReminderCheckAt(at("2026-12-03", "07:59"))), { day: "2026-12-03", time: "08:00" });
+  assert.deepEqual(local(nextReminderCheckAt(at("2026-12-03", "10:00"))), { day: "2026-12-03", time: "10:01" });
+  assert.deepEqual(local(nextReminderCheckAt(at("2026-12-03", "19:59"))), { day: "2026-12-04", time: "08:00" });
+  assert.deepEqual(local(nextReminderCheckAt(at("2026-12-03", "20:00"), 1000)), { day: "2026-12-04", time: "08:00" });
+  assert.deepEqual(local(nextReminderCheckAt(at("2027-03-27", "23:00"))), { day: "2027-03-28", time: "08:00" });
+  assert.deepEqual(local(nextReminderCheckAt(at("2027-10-30", "23:00"))), { day: "2027-10-31", time: "08:00" });
+});
 
 test("promemoria a 24 ore, mai per conferme entro o esattamente a 24 ore", () => {
   const start = at("2026-12-03", "15:30");

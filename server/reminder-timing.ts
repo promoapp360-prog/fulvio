@@ -11,6 +11,13 @@ export function nextReminderWindow(now: Date): Date {
   return now;
 }
 
+/** Nessun risveglio al minuto durante la notte: si attende direttamente la riapertura. */
+export function nextReminderCheckAt(now: Date, delayMs = 60_000): Date {
+  const opening = nextReminderWindow(now);
+  if (opening.getTime() > now.getTime()) return opening;
+  return nextReminderWindow(new Date(now.getTime() + delayMs));
+}
+
 /** Almeno 24 ore prima; fuori fascia si anticipa all'ultimo minuto utile.
  * Se la conferma arriva dopo quell'istante, basta la conferma immediata:
  * non si inventa un promemoria "24 ore prima" già scaduto.

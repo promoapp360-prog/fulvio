@@ -79,6 +79,11 @@ export async function processQueue() {
       try {
         if (m.template === "promemoria") {
           const now = new Date();
+          const next = nextReminderWindow(now);
+          if (next.getTime() > now.getTime()) {
+            await db.update(emailQueue).set({ status: "in_coda", nextAttemptAt: next, lastError: "Rinviata alla fascia 08:00–20:00 Europe/Rome" }).where(eq(emailQueue.id, m.id));
+            continue;
+          }
           const match = /^reminder:(\d+)(?::(\d+))?$/.exec(m.dedupeKey || "");
           if (match) {
             const [current] = await db.select({ startAt: appointments.startAt, status: appointments.status, active: users.active, commEmail: users.commEmail })
@@ -88,11 +93,6 @@ export async function processQueue() {
               await db.update(emailQueue).set({ status: "fallita", lastError: reason }).where(eq(emailQueue.id, m.id));
               continue;
             }
-          }
-          const next = nextReminderWindow(now);
-          if (next.getTime() > now.getTime()) {
-            await db.update(emailQueue).set({ status: "in_coda", nextAttemptAt: next, lastError: "Rinviata alla fascia 08:00–20:00 Europe/Rome" }).where(eq(emailQueue.id, m.id));
-            continue;
           }
         }
         if (!t) { await db.update(emailQueue).set({ status: "simulata", lastError: "SMTP non configurato", attempts: m.attempts + 1 }).where(eq(emailQueue.id, m.id)); continue; }
