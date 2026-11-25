@@ -1,32 +1,51 @@
-// Job leggeri con un solo controllo orario: promemoria, richiami periodici, scadenza punti. Nessun polling continuo.
+// Promemoria: controllo leggero ogni minuto. Richiami e scadenza punti: ogni ora.
 import { and, eq, gt, isNull, lte, inArray, sql } from "drizzle-orm";
-import { db } from "./db";
+import { db, type DbExecutor } from "./db";
 import { appointments, users, services, dogs, operators } from "../shared/schema";
-import { notifyUser } from "./services/notify";
+import { notifyUser, pushUserNotification } from "./services/notify";
 import { getSettings } from "./services/settings";
 import { expirePoints } from "./services/loyalty";
-import { startEmailQueue } from "./services/email";
+import { startEmailQueue, kickQueue } from "./services/email";
 import { dateToRome, fmtRome } from "./time";
+import { nextReminderWindow, reminderDueAt, reminderKey, REMINDER_HOURS } from "./reminder-timing";
 
 let running = false;
 
-/** Promemoria N ore prima (default 24) per gli appuntamenti confermati; reminder_sent_at evita i duplicati. */
-async function sendReminders() {
-  const s = await getSettings();
-  const until = new Date(Date.now() + s.notifications.reminderHours * 3600_000);
-  const list = await db.select({ a: appointments, u: users, s: services.name, d: dogs.name, o: operators.name }).from(appointments)
+/** Accodamento atomico: flag, notifica ed email si salvano insieme o non si salvano. */
+export async function sendReminders(now = new Date(), executor: DbExecutor = db, startQueue = true, onlyCustomerId?: number) {
+  if (nextReminderWindow(now).getTime() !== now.getTime()) return 0;
+  const until = new Date(now.getTime() + (REMINDER_HOURS + 14) * 3600_000);
+  const list = await executor.select({ a: appointments, u: users, s: services.name, d: dogs.name, o: operators.name,
+    confirmedAt: sql<Date | null>`(select max(e.created_at) from appointment_events e where e.appointment_id = "appointments"."id" and e.to_status = 'confermata' and (e.from_status is distinct from 'confermata' or (e.action = 'modifica' and e.data @> '{"startTimeChanged":true}'::jsonb)))`.mapWith(v => v ? new Date(v) : null),
+  }).from(appointments)
     .innerJoin(users, eq(users.id, appointments.customerId)).innerJoin(services, eq(services.id, appointments.serviceId)).innerJoin(dogs, eq(dogs.id, appointments.dogId))
     .leftJoin(operators, eq(operators.id, appointments.operatorId))
-    .where(and(gt(appointments.startAt, new Date()), lte(appointments.startAt, until), inArray(appointments.status, ["confermata", "attesa_pagamento"]), isNull(appointments.reminderSentAt)))
-    .limit(200);
+    .where(and(gt(appointments.startAt, now), lte(appointments.startAt, until), eq(appointments.status, "confermata"), eq(users.active, true), isNull(appointments.reminderSentAt),
+      onlyCustomerId === undefined ? undefined : eq(appointments.customerId, onlyCustomerId)));
+  let queued = 0;
   for (const x of list) {
-    const [claimed] = await db.update(appointments).set({ reminderSentAt: new Date() }).where(and(eq(appointments.id, x.a.id), isNull(appointments.reminderSentAt))).returning({ id: appointments.id });
-    if (!claimed) continue;
-    await notifyUser(x.u, {
+    const due = x.confirmedAt && reminderDueAt(x.a.startAt, x.confirmedAt);
+    if (!due || due.getTime() > now.getTime()) continue;
+    const msg = {
       title: "Promemoria appuntamento", body: `${x.d}: ${x.s} ${fmtRome(x.a.startAt)}. Ti aspettiamo da Dog's Planet!`, url: "/account/appuntamenti",
-      template: "promemoria", vars: { cane: x.d, servizio: x.s, data: fmtRome(x.a.startAt), operatore: x.o ?? "" }, dedupeKey: `reminder:${x.a.id}`,
+      template: "promemoria", vars: { cane: x.d, servizio: x.s, data: fmtRome(x.a.startAt), operatore: x.o ?? "" }, dedupeKey: reminderKey(x.a.id, x.a.startAt),
+    };
+    const claimed = await executor.transaction(async tx => {
+      const [a] = await tx.update(appointments).set({ reminderSentAt: now })
+        .where(and(eq(appointments.id, x.a.id), eq(appointments.status, "confermata"), eq(appointments.startAt, x.a.startAt), isNull(appointments.reminderSentAt))).returning({ id: appointments.id });
+      if (!a) return false;
+      await notifyUser(x.u, msg, tx);
+      return true;
     });
+    if (claimed) {
+      queued++;
+      if (executor === db) {
+        if (startQueue) kickQueue();
+        await pushUserNotification(x.u, msg);
+      }
+    }
   }
+  return queued;
 }
 
 /** Richiami periodici: invito a richiedere un nuovo appuntamento. Non crea mai prenotazioni. Una volta al giorno (10-11). */
@@ -60,7 +79,6 @@ async function sendRecalls() {
 async function tick() {
   if (running) return; running = true;
   try {
-    await sendReminders();
     await sendRecalls();
     await expirePoints();
   } catch (e) {
@@ -71,6 +89,20 @@ async function tick() {
 export function startJobs() {
   startEmailQueue().catch((e) => console.error("[email]", e.message));
   if (process.env.DISABLE_JOBS === "1") return;
+  let remindersRunning = false;
+  const reminders = async () => {
+    if (remindersRunning) return;
+    remindersRunning = true;
+    try {
+      await sendReminders();
+      // Recupera anche email salvate prima di un'interruzione post-commit.
+      kickQueue();
+    }
+    catch (error) { console.error("[jobs] promemoria:", (error as Error).message); }
+    finally { remindersRunning = false; }
+  };
+  setTimeout(reminders, 1000).unref();
+  setInterval(reminders, 60_000).unref();
   setTimeout(tick, 60_000).unref();
   setInterval(tick, 60 * 60_000).unref();
 }

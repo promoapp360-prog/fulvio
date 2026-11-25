@@ -1,10 +1,11 @@
 import nodemailer from "nodemailer";
 import { and, asc, eq, inArray, lte, sql, lt, min } from "drizzle-orm";
-import { db } from "../db";
-import { emailQueue, emailTemplates } from "../../shared/schema";
+import { db, type DbExecutor } from "../db";
+import { appointments, users, emailQueue, emailTemplates } from "../../shared/schema";
 import { BUSINESS, fullAddress } from "../../shared/constants";
 import { DEFAULT_TEMPLATES } from "./templates";
 import { renderTemplate } from "../logic";
+import { nextReminderWindow, obsoleteReminder } from "../reminder-timing";
 
 let transporter: nodemailer.Transporter | null = null;
 const smtpConfigured = () => !!process.env.SMTP_HOST;
@@ -26,9 +27,9 @@ const paragraphs = (text: string) => text.split(/\n{2,}/).map((x) => x.trim()).f
 /** Layout email con logo ufficiale e colori del brand. */
 export function emailLayout(title: string, bodyHtml: string, cta?: { label: string; url: string }, footerExtra = "") {
   const base = process.env.PUBLIC_URL || "";
-  return `<!doctype html><html lang="it"><body style="margin:0;background:#E6F7FF;font-family:Arial,Helvetica,sans-serif;color:#0A2350">
+  return `<!doctype html><html lang="it"><body style="margin:0;background:#E6F7FF;font-family:'Poppins',Arial,Helvetica,sans-serif;color:#0A2350">
 <table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:24px 12px">
-<table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;background:#fff;border-radius:16px;overflow:hidden">
+<table width="100%" cellpadding="0" cellspacing="0" style="width:100%;max-width:600px;background:#fff;border-radius:16px;overflow:hidden">
 <tr><td align="center" style="padding:24px 24px 8px"><img src="${base}/brand/logo.png" alt="Dog's Planet – Pet Grooming" width="200" style="display:block;max-width:200px;height:auto"></td></tr>
 <tr><td style="padding:8px 32px 16px"><h1 style="font-size:22px;color:#0B3D91;margin:12px 0">${esc(title)}</h1>${bodyHtml}
 ${cta ? `<p style="text-align:center;margin:28px 0"><a href="${cta.url}" style="background:#00B6C8;color:#fff;text-decoration:none;padding:12px 24px;border-radius:999px;font-weight:bold">${esc(cta.label)}</a></p>` : ""}
@@ -38,20 +39,20 @@ ${cta ? `<p style="text-align:center;margin:28px 0"><a href="${cta.url}" style="
 </table></td></tr></table></body></html>`;
 }
 
-export async function getTemplate(key: string) {
-  const [t] = await db.select().from(emailTemplates).where(eq(emailTemplates.key, key));
+export async function getTemplate(key: string, executor: DbExecutor = db) {
+  const [t] = await executor.select().from(emailTemplates).where(eq(emailTemplates.key, key));
   if (t) return t;
   const d = DEFAULT_TEMPLATES[key];
   return d ? { key, ...d, active: true } : null;
 }
 
 /** Invia (accoda) una email da template personalizzabile. I valori vengono sanificati. */
-export async function sendTemplate(key: string, to: string, vars: Record<string, string | number | null | undefined>, opts: { userId?: number | null; cta?: { label: string; url: string }; dedupeKey?: string; footer?: string } = {}) {
-  const t = await getTemplate(key);
+export async function sendTemplate(key: string, to: string, vars: Record<string, string | number | null | undefined>, opts: { userId?: number | null; cta?: { label: string; url: string }; dedupeKey?: string; footer?: string; executor?: DbExecutor } = {}) {
+  const t = await getTemplate(key, opts.executor);
   if (!t || !t.active) return false;
   const subject = renderTemplate(t.subject, vars).slice(0, 250);
   const html = emailLayout(subject, paragraphs(renderTemplate(t.body, vars)), opts.cta, opts.footer);
-  return enqueueEmail({ to, subject, html, template: key, userId: opts.userId, dedupeKey: opts.dedupeKey });
+  return enqueueEmail({ to, subject, html, template: key, userId: opts.userId, dedupeKey: opts.dedupeKey }, opts.executor);
 }
 
 /** Retrocompatibilità: invio diretto di HTML già composto (accodato). */
@@ -59,11 +60,12 @@ export async function sendEmail(to: string, subject: string, html: string, templ
   return enqueueEmail({ to, subject, html, template });
 }
 
-export async function enqueueEmail(m: { to: string; subject: string; html: string; template?: string; userId?: number | null; dedupeKey?: string }) {
-  const rows = await db.insert(emailQueue).values({ toEmail: m.to, subject: m.subject, html: m.html, template: m.template, userId: m.userId ?? null, dedupeKey: m.dedupeKey ?? null })
+export async function enqueueEmail(m: { to: string; subject: string; html: string; template?: string; userId?: number | null; dedupeKey?: string }, executor: DbExecutor = db) {
+  const rows = await executor.insert(emailQueue).values({ toEmail: m.to, subject: m.subject, html: m.html, template: m.template, userId: m.userId ?? null, dedupeKey: m.dedupeKey ?? null })
     .onConflictDoNothing().returning({ id: emailQueue.id });
   if (!rows.length) return false; // già accodata (deduplica)
-  kickQueue();
+  // Dentro una transazione il chiamante avvia il worker soltanto dopo il commit.
+  if (executor === db) kickQueue();
   return true;
 }
 
@@ -81,7 +83,7 @@ export function kickQueue() {
   });
 }
 
-async function processQueue() {
+export async function processQueue() {
   for (let round = 0; round < 10; round++) {
     const batch = await db.update(emailQueue).set({ status: "in_invio" })
       .where(inArray(emailQueue.id, sql`(SELECT id FROM email_queue WHERE status IN ('in_coda','errore') AND next_attempt_at <= now() ORDER BY id LIMIT 20 FOR UPDATE SKIP LOCKED)`))
@@ -89,8 +91,26 @@ async function processQueue() {
     if (!batch.length) return;
     const t = getTransporter();
     for (const m of batch) {
-      if (!t) { await db.update(emailQueue).set({ status: "simulata", lastError: "SMTP non configurato", attempts: m.attempts + 1 }).where(eq(emailQueue.id, m.id)); continue; }
       try {
+        if (m.template === "promemoria") {
+          const now = new Date();
+          const match = /^reminder:(\d+)(?::(\d+))?$/.exec(m.dedupeKey || "");
+          if (match) {
+            const [current] = await db.select({ startAt: appointments.startAt, status: appointments.status, active: users.active, commEmail: users.commEmail })
+              .from(appointments).innerJoin(users, eq(users.id, appointments.customerId)).where(eq(appointments.id, Number(match[1])));
+            const reason = obsoleteReminder(match[2] ? Number(match[2]) : undefined, current, now);
+            if (reason) {
+              await db.update(emailQueue).set({ status: "fallita", lastError: reason }).where(eq(emailQueue.id, m.id));
+              continue;
+            }
+          }
+          const next = nextReminderWindow(now);
+          if (next.getTime() > now.getTime()) {
+            await db.update(emailQueue).set({ status: "in_coda", nextAttemptAt: next, lastError: "Rinviata alla fascia 08:00–20:00 Europe/Rome" }).where(eq(emailQueue.id, m.id));
+            continue;
+          }
+        }
+        if (!t) { await db.update(emailQueue).set({ status: "simulata", lastError: "SMTP non configurato", attempts: m.attempts + 1 }).where(eq(emailQueue.id, m.id)); continue; }
         const info = await t.sendMail({ from: process.env.MAIL_FROM || `${BUSINESS.name} <${BUSINESS.email}>`, to: m.toEmail, subject: m.subject, html: m.html });
         const rejected = (info.rejected || []).length > 0;
         await db.update(emailQueue).set({ status: rejected ? "fallita" : "inviata", sentAt: new Date(), attempts: m.attempts + 1, providerId: String(info.messageId || "").slice(0, 255), lastError: rejected ? "Destinatario rifiutato dal server" : null }).where(eq(emailQueue.id, m.id));
@@ -99,7 +119,7 @@ async function processQueue() {
         const delayMin = Math.min(240, 2 ** attempts); // 2, 4, 8, 16 minuti...
         await db.update(emailQueue).set({
           status: attempts >= MAX_ATTEMPTS ? "fallita" : "errore", attempts, lastError: (e as Error).message.slice(0, 500),
-          nextAttemptAt: new Date(Date.now() + delayMin * 60_000),
+          nextAttemptAt: m.template === "promemoria" ? nextReminderWindow(new Date(Date.now() + delayMin * 60_000)) : new Date(Date.now() + delayMin * 60_000),
         }).where(eq(emailQueue.id, m.id));
       }
     }

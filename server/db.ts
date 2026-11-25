@@ -19,4 +19,5 @@ pool.on("error", (err) => console.error("[db] errore pool:", err.message));
 
 export const db = drizzle(pool, { schema });
 export type DB = typeof db;
+export type DbExecutor = DB | Parameters<Parameters<DB["transaction"]>[0]>[0];
 export { schema };

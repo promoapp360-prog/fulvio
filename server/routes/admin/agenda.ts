@@ -7,6 +7,7 @@ import { requirePerm, hasPerm } from "../../auth";
 import { applyAction, logEvent, paidTotal } from "../../services/appointments";
 import { assertSlotFree, quote, operatorSlots, availability } from "../../services/availability";
 import { notifyUser } from "../../services/notify";
+import { notifyAppointmentConfirmed } from "../../services/appointment-mail";
 import { audit } from "../../services/audit";
 import { h, HttpError, id, zDay, zTime, zOptStr } from "../../util";
 import { romeToDate, addDays, fmtRome } from "../../time";
@@ -179,12 +180,13 @@ r.patch("/appointments/:id", requirePerm("agenda_edit"), h(async (req, res) => {
     if (timingChanged && active && op && !d.force) await assertSlotFree(tx, op, start, dur, a.id);
     const patch: any = {
       startAt: start, endAt: new Date(start.getTime() + dur * 60_000), operatorId: op, durationMin: dur, updatedAt: new Date(),
+      ...(start.getTime() !== a.startAt.getTime() ? { reminderSentAt: null } : {}),
       ...(d.force ? { allowOverlap: true } : {}),
     };
     for (const k of ["finalPriceCents", "estimatedPriceCents", "adminNotes", "treatmentNotes", "paymentMode", "depositCents"] as const) if (d[k] !== undefined) patch[k] = d[k];
     if (d.clearChangeRequest) patch.changeRequest = null;
     const [u] = await tx.update(appointments).set(patch).where(eq(appointments.id, aid)).returning();
-    await logEvent(tx, aid, req.user!.id, "modifica", a.status, a.status, { ...d, before: { startAt: a.startAt, operatorId: a.operatorId, durationMin: a.durationMin } });
+    await logEvent(tx, aid, req.user!.id, "modifica", a.status, a.status, { ...d, startTimeChanged: start.getTime() !== a.startAt.getTime(), before: { startAt: a.startAt, operatorId: a.operatorId, durationMin: a.durationMin } });
     return { u, timingChanged, a };
   });
   if (out.timingChanged && ["confermata", "attesa_pagamento"].includes(out.u.status)) {
@@ -222,10 +224,7 @@ r.post("/appointments", requirePerm("agenda_edit"), h(async (req, res) => {
     return x;
   });
   if (d.notify) {
-    const [c] = await db.select().from(users).where(eq(users.id, d.customerId));
-    const [op] = await db.select().from(operators).where(eq(operators.id, d.operatorId));
-    if (c) await notifyUser(c, { title: "Appuntamento confermato", body: `${dog.name}: ${qt.service.name} il ${fmtRome(start)}.`, url: "/account/appuntamenti",
-      template: "appuntamento_confermato", vars: { cane: dog.name, servizio: qt.service.name, data: fmtRome(start), operatore: op?.name ?? "" } });
+    await notifyAppointmentConfirmed(a.id);
   }
   await audit(req, "appointment_create", "appointment", a.id, d);
   res.status(201).json(a);

@@ -10,6 +10,8 @@ import { ensureCard, adjust, redeem, reverseFor, extendExpiry, upcomingExpiries 
 import { sendXlsx, sendPdf } from "../../services/exporter";
 import { services as servicesT, dogs as dogsT } from "../../../shared/schema";
 import { paidTotal, logEvent } from "../../services/appointments";
+import { notifyAppointmentConfirmed } from "../../services/appointment-mail";
+import { kickQueue } from "../../services/email";
 import { getSettings } from "../../services/settings";
 import { h, HttpError, id, paging, zDay, zOptStr, toCsv } from "../../util";
 import { romeToDate, addDays } from "../../time";
@@ -100,11 +102,13 @@ r.post("/payments", requirePerm("pagamenti"), h(async (req, res) => {
       if (a.status === "attesa_pagamento" && (await paidTotal(a.id, tx)) >= due) {
         await tx.update(appointments).set({ status: "confermata", updatedAt: new Date() }).where(eq(appointments.id, a.id));
         await logEvent(tx, a.id, req.user!.id, "conferma_pagamento", "attesa_pagamento", "confermata");
+        await notifyAppointmentConfirmed(a.id, tx);
       }
     }
     return row;
   });
   await audit(req, "create", "payment", p.id, d);
+  kickQueue();
   res.status(201).json(p);
 }));
 

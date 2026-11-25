@@ -15,6 +15,7 @@
     "db:check": "tsx server/check-schema.ts",
     "db:seed": "tsx server/seed.ts",
     "db:backup": "tsx server/backup.ts",
+    "jobs:reminders": "NODE_ENV=production tsx server/run-reminders.ts",
     "check": "tsc --noEmit",
     "test": "tsx --test tests/*.test.ts",
     "test:db": "bash tests/db/run.sh"

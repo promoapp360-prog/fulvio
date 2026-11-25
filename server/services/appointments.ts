@@ -3,7 +3,8 @@ import { db } from "../db";
 import { appointments, appointmentEvents, appointmentPhotos, dogPhotos, dogs, operators, services, users, payments, customerConsents, boardingRequests, boardingEvents, type Appointment, type AppointmentStatus, type Dog } from "../../shared/schema";
 import { assertSlotFree, operatorSlots, operatorCanDo, quote, compatibleOperators, compatibleOperatorsForServices, SlotError } from "./availability";
 import { getSettings } from "./settings";
-import { notifyUser, notifyStaff } from "./notify";
+import { notifyUser, notifyStaff, pushUserNotification } from "./notify";
+import { kickQueue } from "./email";
 import { awardForAmount } from "./loyalty";
 import { fmtRome, romeToDate, todayRome, addDays } from "../time";
 import { withinDeadline } from "../logic";
@@ -14,6 +15,7 @@ import { recordConsent } from "./consents";
 import type { Request } from "express";
 import type { z } from "zod";
 import { appointmentRequestSchema, bookingServiceIds, customerDogSchema } from "../../shared/customer-booking";
+import { notifyAppointmentConfirmed } from "./appointment-mail";
 
 export async function logEvent(tx: any, appointmentId: number, actorId: number | null, action: string, from: string | null, to: string | null, data: Record<string, unknown> = {}) {
   await tx.insert(appointmentEvents).values({ appointmentId, actorId, action, fromStatus: from, toStatus: to, data });
@@ -285,9 +287,13 @@ export async function applyAction(appointmentId: number, actor: { id: number; ro
       }
     }
     patch.status = to;
+    if (input.action === "conferma" || input.action === "accetta_proposta") patch.reminderSentAt = null;
     if (input.reason && !isCustomer && input.action !== "annulla") patch.adminNotes = [a.adminNotes, input.reason].filter(Boolean).join("\n");
-    const [u] = await tx.update(appointments).set(patch).where(eq(appointments.id, a.id)).returning();
+    const [u] = await tx.update(appointments).set(patch)
+      .where(and(eq(appointments.id, a.id), eq(appointments.status, a.status), eq(appointments.updatedAt, a.updatedAt))).returning();
+    if (!u) throw new HttpError(409, "L’appuntamento è stato aggiornato: ricarica prima di riprovare.");
     await logEvent(tx, a.id, actor.id, input.action, a.status, to, { reason: input.reason, force: !!input.force, ...(input.startAt ? { startAt: input.startAt } : {}) });
+    if (to === "confermata" && a.status !== to) await notifyAppointmentConfirmed(a.id, tx);
 
     if (to === "completata" && before.service.earnsPoints) {
       const paid = await paidTotal(a.id, tx);
@@ -314,7 +320,11 @@ export async function applyAction(appointmentId: number, actor: { id: number; ro
   const m = msgs[updated.status];
   if (m && updated.status !== a.status) {
     if (isCustomer) await notifyStaff("richieste", { title: `Cliente: ${m.title}`, body: `${c.firstName} ${c.lastName} – ${before.dog.name}`, url: `/admin/richieste?id=${a.id}` });
-    else await notifyUser(c, { title: m.title, body: m.body, url: "/account/appuntamenti", template: m.template, vars });
+    if (updated.status === "confermata") {
+      kickQueue();
+      await pushUserNotification(c, m);
+    }
+    else if (!isCustomer) await notifyUser(c, { title: m.title, body: m.body, url: "/account/appuntamenti", template: m.template, vars });
   }
   return updated;
 }

@@ -71,7 +71,13 @@ docs/              guida al gestionale ed esiti dei test
 
 **Deploy → Autoscale** (configurato in `.replit`): build `npm install && npm run build`, avvio `npm start`.
 Prima crea un bucket in **Object Storage** (nei deploy il disco non è persistente).
-I job (coda email, promemoria, richiami, scadenze punti) girano ogni ora mentre l'app è attiva: con Autoscale l'app può spegnersi quando non ci sono visite, quindi per promemoria sempre puntuali è consigliato **Reserved VM** (costo Replit da valutare).
+Le email di registrazione, richiesta ricevuta e conferma vengono accodate subito. Il promemoria è previsto **24 ore prima**, soltanto per appuntamenti confermati con sufficiente anticipo. Fuori dalla fascia **08:00–20:00 Europe/Rome** si anticipa all'ultimo minuto utile (19:59); la fascia vale anche per i ritentativi SMTP e segue l'ora legale. Se la conferma arriva troppo tardi per quel preavviso, resta la conferma immediata: non si genera un falso promemoria “24 ore prima”.
+
+Il controllo promemoria avviene ogni minuto mentre l'app è attiva; richiami e scadenze punti restano orari. Stato e coda sono persistenti, con protezione dai duplicati; appuntamenti annullati, già iniziati o spostati non ricevono vecchi promemoria. Sono rispettate preferenze email e template disattivati dall'admin, le cui personalizzazioni non vengono sovrascritte.
+
+**Limite Autoscale:** il server può fermarsi senza visite, quindi questi timer da soli non garantiscono invii puntuali. Serve una soluzione autorizzata: **Reserved VM** sempre attiva oppure esecuzione pianificata del comando `pnpm --filter @workspace/dogs-planet run jobs:reminders` con ambiente e database di produzione dedicati. Nessuna delle due viene attivata automaticamente; verificare costi e configurazione prima della pubblicazione. La pianificazione deve essere frequente (idealmente ogni minuto) e il runner non deve essere avviato come ulteriore servizio web.
+
+SMTP Aruba: `smtps.aruba.it`, porta `465` SSL/TLS, utente e mittente `info@dogsplanet.it`; password soltanto in `SMTP_PASS` nei Secrets. Impostare `PUBLIC_URL` distintamente per sviluppo e produzione, affinché verifica email e recupero password usino il database corretto.
 
 ## 4. Sincronizzazione GitHub ↔ Replit
 

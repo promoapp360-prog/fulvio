@@ -419,8 +419,7 @@ export function Communications() {
       <Tabs value={tab} onChange={setTab} items={[{ value: "campagne", label: "Campagne" }, { value: "template", label: "Email automatiche" }, { value: "promemoria", label: "Promemoria e richiami" }, { value: "log", label: "Registro email" }, { value: "push", label: "Registro push" }]} />
       {tab === "campagne" && <Campaigns />}
       {tab === "template" && <Templates />}
-      {tab === "promemoria" && <SettingsForm section="notifications" title="Promemoria e richiami periodici" intro="Il promemoria parte una sola volta per ogni appuntamento confermato (email + push). Il richiamo periodico invita il cliente a richiedere un nuovo appuntamento secondo la frequenza impostata nella scheda del cane: non crea mai prenotazioni e rispetta le preferenze di comunicazione." fields={[
-        { key: "reminderHours", label: "Promemoria: ore prima dell'appuntamento", type: "number", hint: "Predefinito 24" },
+      {tab === "promemoria" && <SettingsForm section="notifications" title="Promemoria e richiami periodici" intro="Il promemoria è previsto 24 ore prima per gli appuntamenti confermati con sufficiente anticipo. Invii e ritentativi solo dalle 08:00 alle 20:00, ora di Roma; fuori fascia si anticipa entro le 20:00. Le conferme sono immediate. Con Autoscale la puntualità richiede un'esecuzione pianificata o un server sempre attivo. Il richiamo periodico rispetta la frequenza del cane e le preferenze: non crea prenotazioni." fields={[
         { key: "recallDefaultDays", label: "Frequenza di richiamo predefinita (giorni)", type: "number", hint: "Vuoto = solo per i cani con frequenza impostata" },
         { key: "recallEnabled", label: "Richiami periodici attivi", type: "checkbox" },
       ]} />}

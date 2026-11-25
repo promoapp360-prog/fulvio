@@ -69,7 +69,7 @@ r.post("/register", limiter, registrationUpload.single("photo"), h(async (req, r
   req.session.userId = user.id; req.session.sv = user.sessionVersion;
   await audit(req, "register", "user", user.id);
   await notifyStaff("clienti", { title: "Nuovo cliente registrato", body: `${user.firstName} ${user.lastName} si è registrato.`, url: `/admin/clienti/${user.id}` });
-  await sendTemplate("registrazione", user.email, { nome: user.firstName }, { userId: user.id, cta: { label: "Vai alla tua area", url: `${base()}/account` } });
+  await sendTemplate("registrazione", user.email, { nome: user.firstName }, { userId: user.id, dedupeKey: `registration:${user.id}`, cta: { label: "Vai alla tua area", url: `${base()}/account` } });
   await sendVerification(user);
   res.status(201).json(publicUser(user));
 }));

@@ -4,6 +4,8 @@ import { db } from "./db";
 import { payments, appointments, orders, users } from "../shared/schema";
 import { verifyStripeSignature } from "./services/payments";
 import { logEvent, paidTotal } from "./services/appointments";
+import { notifyAppointmentConfirmed } from "./services/appointment-mail";
+import { kickQueue } from "./services/email";
 import { commitStock } from "./services/shop";
 import { notifyUser, notifyStaff } from "./services/notify";
 
@@ -43,6 +45,7 @@ async function handlePaid(sessionId: string, amountTotal: number, meta: Record<s
       if (a.status === "attesa_pagamento" && (await paidTotal(a.id, tx)) >= due) {
         await tx.update(appointments).set({ status: "confermata", updatedAt: new Date() }).where(eq(appointments.id, a.id));
         await logEvent(tx, a.id, null, "conferma_pagamento", "attesa_pagamento", "confermata");
+        await notifyAppointmentConfirmed(a.id, tx);
       }
     }
     if (p.orderId) {
@@ -52,6 +55,7 @@ async function handlePaid(sessionId: string, amountTotal: number, meta: Record<s
     return p;
   });
   if (!result) return;
+  kickQueue();
   const [u] = result.customerId ? await db.select().from(users).where(eq(users.id, result.customerId)) : [];
   if (u) await notifyUser(u, { title: "Pagamento ricevuto", body: `Abbiamo ricevuto ${(amountTotal / 100).toFixed(2)} €. Grazie!`, url: result.orderId ? "/account/ordini" : "/account/appuntamenti" });
   await notifyStaff("pagamenti", { title: "Pagamento online ricevuto", body: `${(amountTotal / 100).toFixed(2)} € ${result.orderId ? "ordine #" + result.orderId : "appuntamento #" + result.appointmentId}`, url: "/admin/pagamenti" });
