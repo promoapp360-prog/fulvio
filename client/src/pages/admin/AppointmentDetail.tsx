@@ -7,6 +7,7 @@ import { get, post, patch } from "@/lib/api";
 import { useMe, can } from "@/lib/auth";
 import { fmtLong, fmtDateTime, romeParts } from "@/lib/format";
 import { euro, PAYMENT_MODES, PAYMENT_METHODS, PAYMENT_KINDS, SIZE_LABELS, STATUS_LABELS } from "@shared/constants";
+import TreatmentDuration from "./TreatmentDuration";
 
 function priceSnapshotLabel(s: any) {
   if (s.pricingType === "fascia" && s.priceCents != null && s.priceMaxCents != null) return `${euro(s.priceCents)}–${euro(s.priceMaxCents)}`;
@@ -82,6 +83,7 @@ export default function AppointmentDetail({ id, onClose }: { id: number | null; 
             {a.privacyAcknowledgedAt&&<p><b>Presa visione privacy:</b> {fmtDateTime(a.privacyAcknowledgedAt)} · versione {a.privacyVersion||"—"} · prova {a.privacyAcknowledgementProof||"—"}</p>}
             {a.marketingConsent&&<p>Marketing facoltativo: selezionato il {fmtDateTime(a.marketingConsentAt)} · {a.marketingConsentProof}</p>}
           </div>}
+          <TreatmentDuration key={id} kind="appointment" bookingId={id} />
           {a.customerNotes && <p className="rounded-xl bg-brand-sky p-3 text-sm"><b>Note del cliente:</b> {a.customerNotes}</p>}
           {a.changeRequest && (
             <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-amber-50 p-3 text-sm"><span><b>Richiesta del cliente:</b> {a.changeRequest}</span>
