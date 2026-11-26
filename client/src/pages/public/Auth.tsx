@@ -6,7 +6,7 @@ import { Field, Check, ErrorBox, useToast } from "@/components/ui";
 import { post } from "@/lib/api";
 import { api } from "@/lib/api";
 import { Eye, EyeOff } from "lucide-react";
-import CustomerDogFields, { DogPhotoInput, newCustomerDog } from "@/components/CustomerDogFields";
+import RegistrationDogs, { newRegistrationDog } from "@/components/RegistrationDogs";
 
 function nextUrl(fallback: string) {
   const n = new URLSearchParams(window.location.search).get("next");
@@ -72,35 +72,35 @@ export function RegisterPage() {
   const [, nav] = useLocation();
   const toast = useToast();
   const [f, setF] = useState({ firstName: "", lastName: "", email: "", phone: "", password: "", city: "", province: "", cap: "", birthDate: "", consentPrivacy: false, consentMarketing: false });
-  const [dog, setDog] = useState<any>(newCustomerDog);
-  const [photo, setPhoto] = useState<File | null>(null);
-  const [photoBusy, setPhotoBusy] = useState(false);
+  const [pets, setPets] = useState(() => [newRegistrationDog()]);
+  const photoBusy = pets.some(pet => pet.photoBusy);
   const [err, setErr] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement>) => setF({ ...f, [k]: e.target.value });
   const submit = async (e: React.FormEvent) => {
-    e.preventDefault(); if (photoBusy) return; setBusy(true); setErr(null);
+    e.preventDefault(); if (photoBusy || busy) return; setBusy(true); setErr(null);
     try {
-      const form = new FormData(); form.append("payload", JSON.stringify({ ...f, dog })); if (photo) form.append("photo", photo);
+      const form = new FormData(); form.append("payload", JSON.stringify({ ...f, dogs: pets.map(pet => pet.data) }));
+      pets.forEach((pet, index) => { if (pet.photo) form.append(`photo_${index}`, pet.photo); });
       const u = await api("/api/auth/register", { method: "POST", form });
       qc.clear();
       qc.setQueryData(["me"], u);
       try { sessionStorage.setItem("dp-install-eligible", "1"); } catch { /* memoria temporanea non disponibile */ }
       window.dispatchEvent(new Event("dp:install-eligible"));
-      toast("Benvenuto in Dog's Planet! Account e scheda cane creati.");
+      toast(`Benvenuto in Dog's Planet! Account e ${pets.length === 1 ? "scheda animale creati" : `${pets.length} schede animali creati`}.`);
       nav(nextUrl("/account"));
     } catch (x) { setErr(x); } finally { setBusy(false); }
   };
   return (
     <AuthCard title="Diventa cliente" wide>
-      <p className="mb-5 text-sm leading-relaxed text-slate-600">Compila i tuoi dati e la scheda del tuo animale una sola volta. I campi indicati con * sono obbligatori.</p>
+      <p className="mb-5 text-sm leading-relaxed text-slate-600">Compila i tuoi dati e una scheda per ciascuno dei tuoi animali, una sola volta. I campi indicati con * sono obbligatori.</p>
       <form onSubmit={submit} className="space-y-5">
         <h2 className="text-lg font-bold">I tuoi dati</h2>
         <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="Nome *"><input className="input" required autoComplete="given-name" value={f.firstName} onChange={set("firstName")} /></Field>
-          <Field label="Cognome *"><input className="input" required autoComplete="family-name" value={f.lastName} onChange={set("lastName")} /></Field>
+          <Field label="Nome *"><input className="input min-h-12" required autoComplete="given-name" value={f.firstName} onChange={set("firstName")} /></Field>
+          <Field label="Cognome *"><input className="input min-h-12" required autoComplete="family-name" value={f.lastName} onChange={set("lastName")} /></Field>
         </div>
-        <Field label="Email *"><input type="email" className="input" required autoComplete="email" value={f.email} onChange={set("email")} /></Field>
+        <Field label="Email *"><input type="email" className="input min-h-12" required autoComplete="email" value={f.email} onChange={set("email")} /></Field>
         <Field label="Telefono / WhatsApp *"><input type="tel" className="input min-h-12" required minLength={8} autoComplete="tel" value={f.phone} onChange={set("phone")} /></Field>
         <Field label="Password *" hint="Scegli la tua password: almeno 8 caratteri."><PasswordInput registration value={f.password} onChange={password => setF({ ...f, password })} /></Field>
         <div className="grid grid-cols-2 gap-3">
@@ -109,8 +109,7 @@ export function RegisterPage() {
           <Field label="CAP *"><input required inputMode="numeric" pattern="[0-9]{5}" maxLength={5} autoComplete="postal-code" className="input min-h-12" value={f.cap} onChange={set("cap")} /></Field>
         </div>
         <Field label="La tua data di nascita *"><input required type="date" autoComplete="bday" max={new Date().toLocaleDateString("sv-SE")} className="input min-h-12" value={f.birthDate} onChange={set("birthDate")} /></Field>
-        <CustomerDogFields value={dog} onChange={setDog} />
-        <DogPhotoInput file={photo} onChange={setPhoto} onProcessingChange={setPhotoBusy} />
+        <RegistrationDogs pets={pets} setPets={setPets} disabled={busy} />
         <fieldset className="rounded-xl border border-sky-200 p-4">
           <legend className="px-1 font-bold">Privacy e preferenze</legend>
           <label className="flex min-h-12 cursor-pointer items-start gap-3 py-2 text-sm leading-relaxed"><input required type="checkbox" className="mt-1 h-5 w-5 shrink-0 accent-brand-navy" checked={f.consentPrivacy} onChange={e => setF({ ...f, consentPrivacy: e.target.checked })} /><span>Ho letto l'<Link href="/privacy-policy" target="_blank" className="font-semibold underline">informativa privacy</Link> ed accetto le <Link href="/condizioni-del-servizio" target="_blank" className="font-semibold underline">condizioni del servizio</Link> *</span></label>

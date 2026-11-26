@@ -19,6 +19,7 @@ export const customerDogSchema = z.object({
   otherNeeds: optionalText(), otherPets: optionalText(),
   customFields: z.record(z.unknown()).default({}),
 });
+export const MAX_REGISTRATION_DOGS = 10;
 export const registrationSchema = z.object({
   email: z.string().trim().toLowerCase().email().max(255), password: z.string().min(8, "Almeno 8 caratteri").max(128),
   firstName: text(100), lastName: text(100),
@@ -27,8 +28,25 @@ export const registrationSchema = z.object({
   cap: z.string().trim().regex(/^\d{5}$/, "Indica un CAP di 5 cifre"), birthDate: birthDay,
   consentPrivacy: z.literal(true, { errorMap: () => ({ message: "Prendi visione della privacy ed accetta le condizioni" }) }),
   consentMarketing: z.boolean().default(false),
-  dog: customerDogSchema,
+  dog: customerDogSchema.optional(), // Compatibility with an already open, older PWA.
+  dogs: z.array(customerDogSchema).min(1, "Inserisci almeno un animale").max(MAX_REGISTRATION_DOGS, `Puoi registrare fino a ${MAX_REGISTRATION_DOGS} animali alla volta`).optional(),
+}).superRefine((value, ctx) => {
+  if ((!value.dog && !value.dogs) || (value.dog && value.dogs)) ctx.addIssue({
+    code: z.ZodIssueCode.custom, path: ["dogs"], message: "Invia una sola lista di schede degli animali",
+  });
+}).transform(({ dog, dogs, ...owner }) => {
+  const pets = dogs ?? [dog!];
+  return { ...owner, dogs: pets, dog: pets[0] };
 });
+
+/** Indexed multipart uploads cannot silently attach a photo to a different pet. */
+export function registrationPhotoIndex(field: string, count: number) {
+  if (field === "photo" && count === 1) return 0;
+  const match = /^photo_(0|[1-9]\d*)$/.exec(field);
+  const index = match ? Number(match[1]) : -1;
+  if (!Number.isSafeInteger(index) || index < 0 || index >= count) throw new Error("La foto non corrisponde a una scheda animale");
+  return index;
+}
 export const appointmentRequestSchema = z.object({
   dogId: z.number().int().positive(), serviceIds: z.array(z.number().int().positive()).min(1).max(10),
   date: calendarDay, time: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/),

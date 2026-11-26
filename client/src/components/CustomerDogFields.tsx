@@ -1,9 +1,9 @@
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Camera, ImagePlus } from "lucide-react";
+import { Camera, ImagePlus, ChevronDown } from "lucide-react";
 import { Field, ErrorBox } from "./ui";
 import { get } from "@/lib/api";
-import { DOG_BREEDS, breedSearch } from "@shared/dog-breeds";
+import { breedOptions } from "@shared/dog-breeds";
 import { SIZES, SIZE_LABELS } from "@shared/constants";
 import { todayISO } from "@/lib/format";
 
@@ -56,6 +56,7 @@ export function DogPhotoInput({ file, existingUrl, onChange, onProcessingChange 
 export default function CustomerDogFields({ value: d, onChange }: { value: any; onChange: (value: any) => void }) {
   const [search, setSearch] = useState(""), [open, setOpen] = useState(false), [other, setOther] = useState(false);
   const listId = useId();
+  const breedInput = useRef<HTMLInputElement>(null);
   const { data: fields } = useQuery<any[]>({ queryKey: ["customer-dog-fields"], queryFn: () => get("/api/public/dog-fields") });
   const set = (key: string, value: unknown) => onChange({ ...d, [key]: value });
   const input = (key: string, label: string) => <Field label={label}>
@@ -65,12 +66,19 @@ export default function CustomerDogFields({ value: d, onChange }: { value: any; 
     <fieldset className="grid gap-3 rounded-2xl border p-4 sm:grid-cols-2">
       <legend className="px-1 font-bold text-brand-navy">Il nostro ospite</legend>
       <Field label="Nome *"><input required maxLength={80} className="input min-h-12" value={d.name || ""} onChange={e => set("name", e.target.value)} /></Field>
-      <Field label="Specie *"><select required className="input min-h-12" value={d.species || "cane"} onChange={e => onChange({ ...d, species: e.target.value, breed: "" })}><option value="cane">Cane</option><option value="gatto">Gatto</option></select></Field>
+      <Field label="Specie *"><select required className="input min-h-12" value={d.species || "cane"} onChange={e => { setOther(false); setSearch(""); setOpen(false); onChange({ ...d, species: e.target.value, breed: "" }); }}><option value="cane">Cane</option><option value="gatto">Gatto</option></select></Field>
       <Field label="Razza *" hint="Cerca una razza, scegli Meticcio oppure Altra razza.">
         {d.species === "gatto" ? <input required className="input min-h-12" value={d.breed || ""} onChange={e => set("breed", e.target.value)} /> : <div className="relative">
-          <input required role="combobox" aria-controls={listId} aria-expanded={open} aria-autocomplete="list" className="input min-h-12" value={open ? search : other ? "Altra razza" : d.breed || ""} placeholder="Cerca la razza…" onFocus={() => { setSearch(""); setOpen(true); }} onBlur={e => { if (!document.getElementById(listId)?.contains(e.relatedTarget)) setTimeout(() => setOpen(false), 160); }} onChange={e => { setSearch(e.target.value); setOpen(true); }} onKeyDown={e => { if (e.key === "Escape") setOpen(false); if (open && e.key === "ArrowDown") { e.preventDefault(); document.getElementById(listId)?.querySelector<HTMLButtonElement>("button")?.focus(); } if (open && e.key === "Enter") e.preventDefault(); }} />
-          {open && <div id={listId} role="listbox" onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget)) setOpen(false); }} className="absolute z-20 mt-1 max-h-60 w-full overflow-y-auto rounded-xl border bg-white p-1 shadow-lg">
-            {Array.from(new Set([...DOG_BREEDS.filter(name => breedSearch(name).includes(breedSearch(search))).slice(0, 25), "Meticcio", "Altra razza"])).map(name => <button key={name} type="button" role="option" aria-selected={!other && d.breed === name} className="min-h-11 w-full rounded-lg px-3 text-left text-sm hover:bg-brand-sky" onMouseDown={e => e.preventDefault()} onClick={() => { setOther(name === "Altra razza"); set("breed", name === "Altra razza" ? "" : name); setOpen(false); }}>{name}</button>)}
+          <input ref={breedInput} required={!d.breed && !other} role="combobox" aria-label="Razza" aria-controls={listId} aria-expanded={open} aria-autocomplete="list" className="input min-h-12 pr-12" value={open ? search : other ? "Altra razza" : d.breed || ""} placeholder="Apri l’elenco o cerca la razza…" onFocus={() => { setSearch(""); setOpen(true); }} onClick={() => { if (!open) { setSearch(""); setOpen(true); } }} onBlur={e => { if (!document.getElementById(listId)?.contains(e.relatedTarget)) setTimeout(() => setOpen(false), 160); }} onChange={e => { setSearch(e.target.value); setOther(false); set("breed", ""); setOpen(true); }} onKeyDown={e => { if (e.key === "Escape") setOpen(false); if (e.key === "ArrowDown") { e.preventDefault(); if (!open) { setSearch(""); setOpen(true); } else document.getElementById(listId)?.querySelector<HTMLButtonElement>("button")?.focus(); } if (open && e.key === "Enter") e.preventDefault(); }} />
+          <button type="button" className="absolute right-0 top-0 grid h-12 w-12 place-items-center text-brand-navy" aria-label={open ? "Chiudi elenco razze" : "Apri elenco razze"} aria-expanded={open} aria-controls={listId} onMouseDown={e => e.preventDefault()} onClick={() => { if (open) setOpen(false); else { breedInput.current?.focus(); setSearch(""); setOpen(true); } }}><ChevronDown size={18} /></button>
+          {open && <div id={listId} role="listbox" aria-label="Razze disponibili" onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget)) setOpen(false); }} onKeyDown={e => {
+            if (e.key === "Escape") { breedInput.current?.focus(); setOpen(false); return; }
+            if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) return;
+            e.preventDefault(); const options = Array.from(e.currentTarget.querySelectorAll<HTMLButtonElement>("button"));
+            const current = options.indexOf(document.activeElement as HTMLButtonElement);
+            options[e.key === "Home" ? 0 : e.key === "End" ? options.length - 1 : (current + (e.key === "ArrowDown" ? 1 : -1) + options.length) % options.length]?.focus();
+          }} className="absolute z-20 mt-1 max-h-60 w-full overflow-y-auto rounded-xl border bg-white p-1 shadow-lg">
+            {breedOptions(search).map(name => <button key={name} type="button" role="option" aria-selected={name === "Altra razza" ? other : !other && d.breed === name} className="min-h-11 w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-brand-sky focus:bg-brand-sky" onMouseDown={e => e.preventDefault()} onClick={() => { setOther(name === "Altra razza"); set("breed", name === "Altra razza" ? "" : name); setOpen(false); }}>{name}</button>)}
           </div>}
           {other && <input aria-label="Specifica la razza" required maxLength={120} className="input mt-2 min-h-12" value={d.breed || ""} onChange={e => set("breed", e.target.value)} placeholder="Specifica la razza" />}
         </div>}

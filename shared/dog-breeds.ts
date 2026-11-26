@@ -29,3 +29,6 @@ export const DOG_BREEDS = [
 export function breedSearch(value: string) {
   return value.normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/['’]/g," ");
 }
+export function breedOptions(search = "") {
+  return Array.from(new Set([...DOG_BREEDS.filter(name => breedSearch(name).includes(breedSearch(search))), "Meticcio", "Altra razza"]));
+}

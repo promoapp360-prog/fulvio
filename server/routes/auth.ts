@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, type Request } from "express";
 import rateLimit from "express-rate-limit";
 import crypto from "node:crypto";
 import { z } from "zod";
@@ -13,15 +13,18 @@ import { recordConsent, currentPolicyVersion, registrationPolicyVersion } from "
 import { notifyStaff } from "../services/notify";
 import { h, HttpError } from "../util";
 import multer from "multer";
-import { registrationSchema } from "../../shared/customer-booking";
+import { MAX_REGISTRATION_DOGS, registrationPhotoIndex, registrationSchema } from "../../shared/customer-booking";
 import { dogs, dogPhotos } from "../../shared/schema";
-import { storeDogPhoto, deleteStored } from "../services/storage";
+import { storeDogPhoto, deleteStored, type StoredFile } from "../services/storage";
 import { validateCustomFields } from "./account";
 
 const r = Router();
 const limiter = rateLimit({ windowMs: 15 * 60_000, limit: 20, standardHeaders: true, legacyHeaders: false, message: { error: "Troppi tentativi, riprova tra qualche minuto" } });
 const MAX_FAILS = 5, LOCK_MIN = 15;
-const registrationUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 2 * 1024 * 1024, files: 1 } });
+const registrationUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 2 * 1024 * 1024, files: MAX_REGISTRATION_DOGS, fields: 1, fieldSize: 1024 * 1024 },
+}).fields([{ name: "photo", maxCount: 1 }, ...Array.from({ length: MAX_REGISTRATION_DOGS }, (_, index) => ({ name: `photo_${index}`, maxCount: 1 }))]);
 
 const password = z.string().min(8, "almeno 8 caratteri").max(128);
 const base = () => process.env.PUBLIC_URL || "";
@@ -34,30 +37,46 @@ async function sendVerification(u: { id: number; email: string; firstName: strin
   await sendTemplate("verifica_email", u.email, { nome: u.firstName, link: `${base()}/verifica-email?token=${t}` }, { userId: u.id, cta: { label: "Verifica email", url: `${base()}/verifica-email?token=${t}` } });
 }
 
-r.post("/register", limiter, registrationUpload.single("photo"), h(async (req, res) => {
-  let payload: unknown = req.body;
-  if (typeof req.body?.payload === "string") {
-    try { payload = JSON.parse(req.body.payload); } catch { throw new HttpError(400, "Dati di registrazione non validi"); }
-  }
+/** Atomic account + pet creation, also exercised without mail side effects by integration tests. */
+export async function createCustomerRegistration(payload: unknown, files: Express.Multer.File[], req: Request) {
   const d = registrationSchema.parse(payload);
   const [exists] = await db.select({ id: users.id }).from(users).where(sql`lower(${users.email}) = ${d.email}`);
-  if (exists) throw new HttpError(409, "Esiste già un account con questa email");
-  const { password: pw, dog, ...data } = d;
-  dog.customFields = await validateCustomFields(dog.customFields);
+  if (exists) throw new HttpError(409, "Esiste già un account con questa email. Accedi con la tua password oppure recuperala.");
+  const { password: pw, dogs: pets, dog: _legacyDog, ...data } = d;
+  for (const [index, pet] of pets.entries()) {
+    try { pet.customFields = await validateCustomFields(pet.customFields); }
+    catch (error) { throw new HttpError(400, `Animale ${index + 1} (${pet.name}): ${(error as Error).message}`); }
+  }
+  const uploads = new Map<number, Express.Multer.File>();
+  for (const file of files) {
+    let index: number;
+    try { index = registrationPhotoIndex(file.fieldname, pets.length); }
+    catch (error) { throw new HttpError(400, (error as Error).message); }
+    if (uploads.has(index)) throw new HttpError(400, `Invia una sola foto per l’animale ${index + 1}`);
+    uploads.set(index, file);
+  }
   const [privacyVersion, termsVersion] = await Promise.all([
     registrationPolicyVersion("privacy-policy"), registrationPolicyVersion("condizioni-del-servizio"),
   ]);
-  const stored = req.file ? await storeDogPhoto(req.file.buffer, req.file.mimetype) : null;
-  let user;
-  try { user = await db.transaction(async (tx) => {
+  const stored = new Map<number, StoredFile>();
+  try {
+    for (const [index, file] of uploads) {
+      try { stored.set(index, await storeDogPhoto(file.buffer, file.mimetype)); }
+      catch (error) { throw new HttpError((error as any).status || 400, `Foto dell’animale ${index + 1}: ${(error as Error).message}`); }
+    }
+    return await db.transaction(async (tx) => {
+    // The unique email index protects concurrent submits as well; never merge an unverified contact.
     const [u] = await tx.insert(users).values({
       ...data, passwordHash: await hashPassword(pw), role: "customer", commPush: false, commEmail: true,
       commWhatsapp: d.consentMarketing, consentDate: new Date(), unsubscribeToken: crypto.randomBytes(24).toString("hex"),
     }).returning();
-    const [pet] = await tx.insert(dogs).values({ ...dog, ownerId: u.id }).returning();
-    if (stored) {
-      await tx.insert(dogPhotos).values({ dogId: pet.id, storageKey: stored.key });
-      await tx.update(dogs).set({ photoUrl: `/api/account/dogs/${pet.id}/photo` }).where(eq(dogs.id, pet.id));
+    for (const [index, petData] of pets.entries()) {
+      const [pet] = await tx.insert(dogs).values({ ...petData, ownerId: u.id }).returning();
+      const photo = stored.get(index);
+      if (photo) {
+        await tx.insert(dogPhotos).values({ dogId: pet.id, storageKey: photo.key });
+        await tx.update(dogs).set({ photoUrl: `/api/account/dogs/${pet.id}/photo` }).where(eq(dogs.id, pet.id));
+      }
     }
     // Nessun collegamento automatico a contatti non verificati.
     await recordConsent(tx, { userId: u.id, kind: "privacy", granted: true, proof: "presa_visione_informativa_alla_registrazione", source: "registrazione", req, policyVersion: privacyVersion });
@@ -65,8 +84,26 @@ r.post("/register", limiter, registrationUpload.single("photo"), h(async (req, r
     await recordConsent(tx, { userId: u.id, kind: "marketing", granted: d.consentMarketing, source: "registrazione", req, policyVersion: await currentPolicyVersion("marketing") });
     await ensureCard(u.id, tx, true);
     return u;
-  }); } catch (error) { if (stored) await deleteStored(stored.key); throw error; }
-  await new Promise<void>((resolve, reject) => req.session.regenerate(error => error ? reject(error) : resolve()));
+  });
+  } catch (error) {
+    await Promise.all([...stored.values()].map(file => deleteStored(file.key)));
+    if ((error as any).code === "23505") throw new HttpError(409, "Esiste già un account con questa email. Accedi con la tua password oppure recuperala.");
+    throw error;
+  }
+}
+
+r.post("/register", limiter, (req, res, next) => registrationUpload(req, res, error => {
+  if (error) return next(new HttpError(400, error.code === "LIMIT_FILE_SIZE" ? "Ogni foto deve essere inferiore a 2 MB dopo la compressione" : "Foto non valide: carica una sola immagine per animale, nelle schede corrispondenti"));
+  next();
+}), h(async (req, res) => {
+  let payload: unknown = req.body;
+  if (typeof req.body?.payload === "string") {
+    try { payload = JSON.parse(req.body.payload); } catch { throw new HttpError(400, "Dati di registrazione non validi"); }
+  }
+  const files = Object.values(req.files || {}).flat() as Express.Multer.File[];
+  const user = await createCustomerRegistration(payload, files, req);
+  try { await new Promise<void>((resolve, reject) => req.session.regenerate(error => error ? reject(error) : resolve())); }
+  catch { throw new HttpError(503, "Account e schede salvati. Accedi con l’email e la password appena scelte per continuare."); }
   req.session.userId = user.id; req.session.sv = user.sessionVersion;
   await audit(req, "register", "user", user.id);
   await notifyStaff("clienti", { title: "Nuovo cliente registrato", body: `${user.firstName} ${user.lastName} si è registrato.`, url: `/admin/clienti/${user.id}` });
