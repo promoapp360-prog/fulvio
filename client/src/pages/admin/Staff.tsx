@@ -7,6 +7,7 @@ import { useMe, can } from "@/lib/auth";
 import { todayISO, fmtDay, mins, fmtDateTime, addDaysISO } from "@/lib/format";
 import { euro, ROLE_LABELS } from "@shared/constants";
 import { useAdminOperators } from "./AppointmentDetail";
+import { settlementOutstanding, settlementTotals } from "@shared/staff-settlements";
 
 const monthStart = () => todayISO().slice(0, 8) + "01";
 
@@ -183,45 +184,67 @@ export function Settlements() {
   const [adj, setAdj] = useState<Record<number, { cents: number | null; note: string }>>({});
   const [from, setFrom] = useState(addDaysISO(todayISO(), -90));
   const [to, setTo] = useState(todayISO());
-  const { data, isLoading } = useQuery<any>({ queryKey: ["settle-preview", day], queryFn: () => get(`/api/admin/settlements/preview?day=${day}`) });
-  const { data: hist } = useQuery<any[]>({ queryKey: ["settlements", from, to], queryFn: () => get(`/api/admin/settlements?from=${from}&to=${to}`) });
+  const [busy, setBusy] = useState<string | null>(null);
+  const { data, isLoading, error: previewError } = useQuery<any>({ queryKey: ["settle-preview", day], queryFn: () => get(`/api/admin/settlements/preview?day=${day}`) });
+  const { data: hist, error: historyError } = useQuery<any[]>({ queryKey: ["settlements", from, to], queryFn: () => get(`/api/admin/settlements?from=${from}&to=${to}`) });
+  const totals = settlementTotals(hist || []);
   const refresh = () => { qc.invalidateQueries({ queryKey: ["settle-preview"] }); qc.invalidateQueries({ queryKey: ["settlements"] }); qc.invalidateQueries({ queryKey: ["worklogs"] }); };
   const create = async (o: any) => {
+    if (busy) return;
+    setBusy(`create-${o.operatorId}`);
     const a = adj[o.operatorId] || { cents: 0, note: "" };
-    try { await post("/api/admin/settlements", { operatorId: o.operatorId, day, adjustmentsCents: a.cents || 0, adjustmentNote: a.note || null }); toast(`Liquidazione di ${o.name} creata`); refresh(); } catch (e: any) { toast(e.message, "err"); }
+    try { await post("/api/admin/settlements", { operatorId: o.operatorId, day, adjustmentsCents: a.cents || 0, adjustmentNote: a.note || null }); toast(`Liquidazione di ${o.name} creata`); refresh(); } catch (e: any) { toast(e.message, "err"); refresh(); }
+    finally { setBusy(null); }
   };
   const setStatus = async (st: any, status: string) => {
-    const paidMethod = status === "pagato" ? prompt("Metodo di pagamento (es. contanti, bonifico):", "contanti") : null;
+    if (busy) return;
+    if (status === "da_pagare" && !confirm(`Annullare la registrazione del pagamento di ${euro(st.totalCents)}? La liquidazione resterà da pagare e le ore resteranno collegate. Non verrà eseguito alcun rimborso o bonifico.`)) return;
+    const paidMethod = status === "pagato" ? prompt(`Conferma la registrazione del pagamento di ${euro(st.totalCents)}. Metodo (es. contanti, bonifico):`, "contanti") : null;
     if (status === "pagato" && paidMethod === null) return;
-    try { await patch(`/api/admin/settlements/${st.id}`, { status, paidMethod }); toast(status === "pagato" ? "Segnata come pagata" : "Pagamento annullato"); refresh(); } catch (e: any) { toast(e.message, "err"); }
+    setBusy(`status-${st.id}`);
+    try { await patch(`/api/admin/settlements/${st.id}`, { status, paidMethod }); toast(status === "pagato" ? "Segnata come pagata" : "Pagamento annullato: liquidazione ancora da pagare"); refresh(); } catch (e: any) { toast(e.message, "err"); refresh(); }
+    finally { setBusy(null); }
   };
+  const cancelSettlement = async (st: any) => {
+    if (busy || !confirm(`Annullare la liquidazione di ${euro(st.totalCents)}? Le ore lavorate non verranno eliminate: le giornate torneranno modificabili e liquidabili. La liquidazione resterà nello storico come annullata.`)) return;
+    setBusy(`cancel-${st.id}`);
+    try { await del(`/api/admin/settlements/${st.id}`); toast("Liquidazione annullata: giornate nuovamente liquidabili"); refresh(); }
+    catch (e: any) { toast(e.message, "err"); refresh(); }
+    finally { setBusy(null); }
+  };
+  const actions = (st: any) => st.status === "annullata" ? <span className="text-xs text-slate-500">Conservata nello storico</span> : <div className="flex flex-wrap gap-2">
+    {st.status === "pagato"
+      ? <button className="btn-ghost btn-sm min-h-11 text-amber-800" disabled={!!busy} onClick={() => setStatus(st, "da_pagare")}>Annulla pagamento</button>
+      : <button className="btn-primary btn-sm min-h-11" disabled={!!busy} onClick={() => setStatus(st, "pagato")}>Segna come pagato</button>}
+    <button className="btn-ghost btn-sm min-h-11 text-red-700" disabled={!!busy || st.status === "pagato"} title={st.status === "pagato" ? "Annulla prima il pagamento" : "Riapre le giornate senza eliminarle"} onClick={() => cancelSettlement(st)}>Annulla liquidazione</button>
+  </div>;
   return (
     <div>
       <PageTitle title="Compensi collaboratori" subtitle="Liquidazione settimanale con pagamento il sabato. Calcolo gestionale: non sostituisce cedolini o adempimenti fiscali." />
+      <p className="mb-4 text-sm text-slate-600"><strong>Annulla pagamento</strong> riporta l’importo a “Da pagare”. <strong>Annulla liquidazione</strong> riapre le giornate e conserva lo storico; se è pagata, annulla prima il pagamento. Le azioni sono disponibili anche nello storico e non eseguono movimenti bancari.</p>
       <div className="mb-4 flex flex-wrap items-end gap-2">
         <Field label="Settimana che contiene il giorno"><input type="date" className="input" value={day} onChange={(e) => e.target.value && setDay(e.target.value)} /></Field>
         <button className="btn-outline btn-sm" onClick={() => setDay(addDaysISO(day, -7))}>‹ Settimana prec.</button>
         <button className="btn-outline btn-sm" onClick={() => setDay(addDaysISO(day, 7))}>Settimana succ. ›</button>
       </div>
-      {isLoading ? <Spinner /> : (
+      {isLoading ? <Spinner /> : previewError ? <ErrorBox error={previewError} /> : data && (
         <>
           <p className="mb-3 font-bold text-brand-navy">Settimana dal {fmtDay(data.week.start)} al {fmtDay(data.week.end)} (pagamento: {fmtDay(data.week.end)})</p>
           {!data.operators.length ? <Empty>Nessuna ora registrata in questa settimana.</Empty> : (
             <div className="grid gap-4 lg:grid-cols-2">
               {data.operators.map((o: any) => (
-                <div key={o.operatorId} className="card">
+                <div key={o.operatorId} className="card" data-testid={`settlement-operator-${o.operatorId}`}>
                   <div className="flex items-start justify-between"><div><h3 className="text-lg font-bold">{o.name}</h3><p className="text-sm text-slate-600">{mins(o.minutes)} · maturato {euro(o.grossCents)}</p></div>
                     {o.settlement && <StatusBadge status={o.settlement.status} labels={{ da_pagare: "Da pagare", pagato: "Pagato" }} colors={{ da_pagare: "#F59E0B", pagato: "#16A34A" }} />}</div>
                   <table className="mt-2 w-full text-xs"><tbody>{o.days.map((d: any) => <tr key={d.id} className="border-t border-slate-100"><td className="py-1">{fmtDay(d.workDate)}</td><td>{d.clockIn}–{d.clockOut || "?"}</td><td>pausa {d.breakMin}′</td><td>{mins(d.effectiveMin)}</td><td className="text-right">{euro(d.amountCents)}</td></tr>)}</tbody></table>
                   {o.settlement ? (
                     <div className="mt-3 rounded-xl bg-slate-50 p-3 text-sm">
                       <p>Maturato {euro(o.settlement.grossCents)}{o.settlement.adjustmentsCents ? <> · rettifiche {euro(o.settlement.adjustmentsCents)} ({o.settlement.adjustmentNote})</> : null}</p>
-                      <p className="text-lg font-extrabold text-brand-navy">Da pagare {euro(o.settlement.totalCents)}</p>
+                      <p className="font-semibold">Importo liquidazione {euro(o.settlement.totalCents)}</p>
+                      <p className="text-lg font-extrabold text-brand-navy">Residuo da pagare {euro(settlementOutstanding(o.settlement))}</p>
                       {o.settlement.status === "pagato" ? <p className="text-green-700">Pagato il {fmtDay(o.settlement.paidAt)} {o.settlement.paidMethod && `(${o.settlement.paidMethod})`}</p> : null}
                       <div className="mt-2 flex flex-wrap gap-2">
-                        {o.settlement.status === "da_pagare" ? <><button className="btn-primary btn-sm" onClick={() => setStatus(o.settlement, "pagato")}>Segna come pagato</button>
-                          <button className="btn-ghost btn-sm" onClick={async () => { if (confirm("Annullare la liquidazione? Le giornate torneranno modificabili.")) { await del(`/api/admin/settlements/${o.settlement.id}`); refresh(); } }}>Annulla liquidazione</button></>
-                          : <button className="btn-ghost btn-sm" onClick={() => setStatus(o.settlement, "da_pagare")}>Annulla pagamento</button>}
+                        {actions(o.settlement)}
                         <a className="btn-outline btn-sm" href={`/api/admin/settlements?from=${data.week.start}&to=${data.week.end}&id=${o.settlement.id}&format=pdf`}><Download size={14} /> PDF</a>
                       </div>
                     </div>
@@ -229,7 +252,7 @@ export function Settlements() {
                     <div className="mt-3 grid gap-2 sm:grid-cols-[140px_1fr_auto] sm:items-end">
                       <Field label="Rettifica (+/-)"><MoneyInput value={adj[o.operatorId]?.cents ?? null} onChange={(v) => setAdj({ ...adj, [o.operatorId]: { note: adj[o.operatorId]?.note || "", cents: v } })} /></Field>
                       <Field label="Motivo rettifica"><input className="input" value={adj[o.operatorId]?.note || ""} onChange={(e) => setAdj({ ...adj, [o.operatorId]: { cents: adj[o.operatorId]?.cents ?? null, note: e.target.value } })} /></Field>
-                      <button className="btn-navy btn-sm" disabled={o.open > 0} title={o.open ? "Ci sono giornate senza uscita" : ""} onClick={() => create(o)}>Crea liquidazione</button>
+                      <button className="btn-navy btn-sm" disabled={o.open > 0 || !!busy} title={o.open ? "Ci sono giornate senza uscita" : ""} onClick={() => create(o)}>{busy === `create-${o.operatorId}` ? "Creazione…" : "Crea liquidazione"}</button>
                     </div>
                   )}
                   <p className="mt-1 text-[11px] text-slate-400">Per una rettifica negativa inserisci l'importo e poi correggi il segno nel campo (es. −5,00 → scrivi "-5").</p>
@@ -246,10 +269,17 @@ export function Settlements() {
         <a className="btn-outline btn-sm" href={`/api/admin/settlements?from=${from}&to=${to}&format=xlsx`}><Download size={14} /> Excel</a>
         <a className="btn-outline btn-sm" href={`/api/admin/settlements?from=${from}&to=${to}&format=pdf`}><Download size={14} /> PDF</a>
       </div>
+      <ErrorBox error={historyError} />
+      {hist?.length ? <div className="mb-3 grid gap-3 sm:grid-cols-3">
+        <div className="card"><p className="text-sm">Importi attivi nel periodo</p><strong>{euro(totals.totalCents)}</strong></div>
+        <div className="card"><p className="text-sm">Già pagati</p><strong className="text-green-700">{euro(totals.paidCents)}</strong></div>
+        <div className="card"><p className="text-sm">Residuo da pagare</p><strong className="text-amber-800">{euro(totals.outstandingCents)}</strong></div>
+      </div> : null}
       {!hist?.length ? <Empty>Nessuna liquidazione nel periodo.</Empty> : (
-        <div className="overflow-x-auto rounded-2xl border bg-white"><table className="table-dp"><thead><tr><th>Operatore</th><th>Settimana</th><th>Ore</th><th>Maturato</th><th>Rettifiche</th><th>Da pagare</th><th>Stato</th></tr></thead>
-          <tbody>{hist.map((x) => <tr key={x.id}><td>{x.operatorName}</td><td>{fmtDay(x.weekStart)} → {fmtDay(x.weekEnd)}</td><td>{x.hours}</td><td>{euro(x.grossCents)}</td><td>{euro(x.adjustmentsCents)}</td><td className="font-bold">{euro(x.totalCents)}</td><td>{x.stato}</td></tr>)}</tbody></table></div>
+        <div className="overflow-x-auto rounded-2xl border bg-white"><table className="table-dp"><thead><tr><th>Operatore</th><th>Settimana</th><th>Ore</th><th>Maturato</th><th>Rettifiche</th><th>Importo</th><th>Residuo</th><th>Stato</th><th>Azioni</th></tr></thead>
+          <tbody>{hist.map((x) => <tr key={x.id} data-testid={`settlement-history-${x.id}`} className={x.status === "annullata" ? "bg-slate-50 text-slate-500" : ""}><td>{x.operatorName}</td><td>{fmtDay(x.weekStart)} → {fmtDay(x.weekEnd)}</td><td>{x.hours}</td><td>{euro(x.grossCents)}</td><td>{euro(x.adjustmentsCents)}</td><td className="font-bold">{euro(x.totalCents)}</td><td>{euro(settlementOutstanding(x))}</td><td>{x.stato}</td><td className="min-w-[180px]">{actions(x)}</td></tr>)}</tbody></table></div>
       )}
+      <p className="mt-2 text-xs text-slate-500">Le liquidazioni annullate restano consultabili con gli importi originali, ma sono escluse dai totali e dal residuo da pagare.</p>
     </div>
   );
 }

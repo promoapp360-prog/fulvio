@@ -1,7 +1,7 @@
 import { Router } from "express";
 import crypto from "node:crypto";
 import { z } from "zod";
-import { and, asc, desc, eq, gte, lte, sql, inArray, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, ne, gte, lte, sql, inArray, isNull } from "drizzle-orm";
 import { db } from "../../db";
 import { workLogs, operators, users, staffSettlements, loginLog } from "../../../shared/schema";
 import { requirePerm, requireAdmin, hashPassword, publicUser, hasPerm, revokeSessions } from "../../auth";
@@ -12,6 +12,7 @@ import { h, HttpError, id, zDay, zTime, zOptStr, paging } from "../../util";
 import { dateToRome, addDays } from "../../time";
 import { roundMinutes, workAmountCents, rawWorkedMinutes, settlementWeek } from "../../logic";
 import { PERMISSIONS, euro } from "../../../shared/constants";
+import { settlementOutstanding, settlementTotals } from "../../../shared/staff-settlements";
 
 const r = Router();
 
@@ -130,7 +131,7 @@ r.get("/settlements/preview", requirePerm("personale"), h(async (req, res) => {
   const wk = settlementWeek(day, s.staff.payWeekday);
   const [logs, existing, ops] = await Promise.all([
     db.select().from(workLogs).where(and(gte(workLogs.workDate, wk.start), lte(workLogs.workDate, wk.end))).orderBy(asc(workLogs.workDate)),
-    db.select().from(staffSettlements).where(eq(staffSettlements.weekStart, wk.start)),
+    db.select().from(staffSettlements).where(and(eq(staffSettlements.weekStart, wk.start), ne(staffSettlements.status, "annullata"))),
     db.select().from(operators).orderBy(asc(operators.sortOrder)),
   ]);
   const out = ops.map((o) => {
@@ -155,6 +156,7 @@ r.post("/settlements", requirePerm("personale"), h(async (req, res) => {
   const wk = settlementWeek(d.day, s.staff.payWeekday);
   const st = await db.transaction(async (tx) => {
     const logs = await tx.select().from(workLogs).where(and(eq(workLogs.operatorId, d.operatorId), gte(workLogs.workDate, wk.start), lte(workLogs.workDate, wk.end))).for("update");
+    if (!logs.length) throw new HttpError(400, "Non ci sono giornate lavorate da liquidare nella settimana selezionata");
     if (logs.some((l) => !l.clockOut)) throw new HttpError(400, "Ci sono giornate senza ora di uscita: completale prima di liquidare");
     if (logs.some((l) => l.settlementId)) throw new HttpError(409, "Settimana già liquidata per questo operatore");
     const minutes = logs.reduce((a, l) => a + l.effectiveMin, 0), gross = logs.reduce((a, l) => a + l.amountCents, 0);
@@ -163,9 +165,9 @@ r.post("/settlements", requirePerm("personale"), h(async (req, res) => {
       adjustmentNote: d.adjustmentNote, totalCents: gross + d.adjustmentsCents, note: d.note, createdBy: req.user!.id,
     }).returning();
     if (logs.length) await tx.update(workLogs).set({ settlementId: row.id }).where(inArray(workLogs.id, logs.map((l) => l.id)));
+    await audit(req, "create", "settlement", row.id, { ...d, workLogIds: logs.map(l => l.id) }, tx);
     return row;
   });
-  await audit(req, "create", "settlement", st.id, d);
   res.status(201).json(st);
 }));
 
@@ -175,31 +177,37 @@ r.patch("/settlements/:id", requirePerm("personale"), h(async (req, res) => {
     status: z.enum(["da_pagare", "pagato"]).optional(), paidAt: zDay.nullable().optional(), paidMethod: zOptStr(30),
     adjustmentsCents: z.number().int().optional(), adjustmentNote: zOptStr(1000), note: zOptStr(1000),
   }).parse(req.body);
-  const [s0] = await db.select().from(staffSettlements).where(eq(staffSettlements.id, sid));
-  if (!s0) throw new HttpError(404, "Liquidazione non trovata");
-  if (s0.status === "pagato" && d.adjustmentsCents !== undefined) throw new HttpError(400, "Liquidazione già pagata: annulla prima il pagamento per rettificarla");
-  if (d.adjustmentsCents !== undefined && d.adjustmentsCents !== 0 && !(d.adjustmentNote ?? s0.adjustmentNote)) throw new HttpError(400, "Indica il motivo della rettifica");
-  const patch: any = { ...d };
-  if (d.adjustmentsCents !== undefined) patch.totalCents = s0.grossCents + d.adjustmentsCents;
-  if (d.status === "pagato" && !d.paidAt) patch.paidAt = dateToRome(new Date()).day;
-  if (d.status === "da_pagare") { patch.paidAt = null; patch.paidMethod = null; }
-  const [s1] = await db.update(staffSettlements).set(patch).where(eq(staffSettlements.id, sid)).returning();
-  await db.update(workLogs).set({ paid: s1.status === "pagato" }).where(eq(workLogs.settlementId, sid));
-  await audit(req, "update", "settlement", sid, { before: s0, after: d });
+  const s1 = await db.transaction(async tx => {
+    const [s0] = await tx.select().from(staffSettlements).where(eq(staffSettlements.id, sid)).for("update");
+    if (!s0) throw new HttpError(404, "Liquidazione non trovata");
+    if (s0.status === "annullata") throw new HttpError(409, "Liquidazione annullata: crea una nuova liquidazione dalle giornate riaperte");
+    if (s0.status === "pagato" && d.adjustmentsCents !== undefined) throw new HttpError(400, "Liquidazione già pagata: annulla prima il pagamento per rettificarla");
+    if (d.adjustmentsCents !== undefined && d.adjustmentsCents !== 0 && !(d.adjustmentNote ?? s0.adjustmentNote)) throw new HttpError(400, "Indica il motivo della rettifica");
+    const patch: any = { ...d };
+    if (d.adjustmentsCents !== undefined) patch.totalCents = s0.grossCents + d.adjustmentsCents;
+    if (d.status === "pagato" && !d.paidAt) patch.paidAt = dateToRome(new Date()).day;
+    if (d.status === "da_pagare") { patch.paidAt = null; patch.paidMethod = null; }
+    const [updated] = await tx.update(staffSettlements).set(patch).where(eq(staffSettlements.id, sid)).returning();
+    await tx.update(workLogs).set({ paid: updated.status === "pagato" }).where(eq(workLogs.settlementId, sid));
+    await audit(req, "update", "settlement", sid, { before: s0, after: updated, operation: s0.status === "pagato" && updated.status === "da_pagare" ? "annulla_pagamento" : "aggiorna" }, tx);
+    return updated;
+  });
   res.json(s1);
 }));
 
-/** Annulla una liquidazione non pagata: le giornate tornano modificabili. */
+/** Logical cancellation: retain the record, release days, preserve audit atomically. */
 r.delete("/settlements/:id", requirePerm("personale"), h(async (req, res) => {
   const sid = id(req.params.id);
   await db.transaction(async (tx) => {
-    const [s0] = await tx.select().from(staffSettlements).where(eq(staffSettlements.id, sid));
+    const [s0] = await tx.select().from(staffSettlements).where(eq(staffSettlements.id, sid)).for("update");
     if (!s0) throw new HttpError(404, "Liquidazione non trovata");
-    if (s0.status === "pagato") throw new HttpError(400, "Liquidazione già pagata");
+    if (s0.status === "annullata") return; // A repeated click must not affect a newer settlement.
+    if (s0.status === "pagato") throw new HttpError(400, "Liquidazione già pagata: annulla prima il pagamento, poi annulla la liquidazione");
+    const logs = await tx.select().from(workLogs).where(eq(workLogs.settlementId, sid)).for("update");
     await tx.update(workLogs).set({ settlementId: null, paid: false }).where(eq(workLogs.settlementId, sid));
-    await tx.delete(staffSettlements).where(eq(staffSettlements.id, sid));
+    await tx.update(staffSettlements).set({ status: "annullata", paidAt: null, paidMethod: null }).where(eq(staffSettlements.id, sid));
+    await audit(req, "delete", "settlement", sid, { operation: "annulla_liquidazione", before: s0, workLogs: logs }, tx);
   });
-  await audit(req, "delete", "settlement", sid);
   res.json({ ok: true });
 }));
 
@@ -208,22 +216,23 @@ r.get("/settlements", requirePerm("personale"), h(async (req, res) => {
   const q = z.object({ from: zDay, to: zDay, operatorId: z.coerce.number().int().optional(), format: z.enum(["xlsx", "pdf"]).optional(), id: z.coerce.number().int().optional() }).parse(req.query);
   const rows = await db.select({ s: staffSettlements, name: operators.name }).from(staffSettlements).innerJoin(operators, eq(operators.id, staffSettlements.operatorId))
     .where(and(q.id ? eq(staffSettlements.id, q.id) : and(gte(staffSettlements.weekEnd, q.from), lte(staffSettlements.weekStart, q.to)), q.operatorId ? eq(staffSettlements.operatorId, q.operatorId) : undefined))
-    .orderBy(desc(staffSettlements.weekStart), asc(operators.name));
-  const list = rows.map((x) => ({ ...x.s, operatorName: x.name, hours: (x.s.minutes / 60).toFixed(2).replace(".", ","), period: `${x.s.weekStart} → ${x.s.weekEnd}`, stato: x.s.status === "pagato" ? `Pagato ${x.s.paidAt ?? ""}` : "Da pagare" }));
+    .orderBy(desc(staffSettlements.weekStart), asc(operators.name), desc(staffSettlements.id));
+  const list = rows.map((x) => ({ ...x.s, operatorName: x.name, hours: (x.s.minutes / 60).toFixed(2).replace(".", ","), period: `${x.s.weekStart} → ${x.s.weekEnd}`, outstandingCents: settlementOutstanding(x.s), stato: x.s.status === "annullata" ? "Annullata" : x.s.status === "pagato" ? `Pagato ${x.s.paidAt ?? ""}` : "Da pagare" }));
+  const totals = settlementTotals(list);
   if (q.format) {
     const sheets: Sheet[] = [{
       name: "Liquidazioni", columns: [{ key: "operatorName", label: "Operatore", width: 14 }, { key: "period", label: "Settimana", width: 20 }, { key: "hours", label: "Ore", width: 7 },
         { key: "grossCents", label: "Maturato", money: true, width: 10 }, { key: "adjustmentsCents", label: "Rettifiche", money: true, width: 10 }, { key: "adjustmentNote", label: "Motivo rettifica", width: 18 },
-        { key: "totalCents", label: "Da pagare", money: true, width: 10 }, { key: "stato", label: "Stato", width: 14 }, { key: "paidMethod", label: "Metodo", width: 10 }] as Column[],
-      rows: list, totals: { operatorName: "Totale", grossCents: list.reduce((a, s) => a + s.grossCents, 0), adjustmentsCents: list.reduce((a, s) => a + s.adjustmentsCents, 0), totalCents: list.reduce((a, s) => a + s.totalCents, 0) },
+        { key: "totalCents", label: "Importo", money: true, width: 10 }, { key: "outstandingCents", label: "Residuo", money: true, width: 10 }, { key: "stato", label: "Stato", width: 14 }, { key: "paidMethod", label: "Metodo", width: 10 }] as Column[],
+      rows: list, totals: { operatorName: "Totale attive", grossCents: totals.grossCents, adjustmentsCents: totals.adjustmentsCents, totalCents: totals.totalCents, outstandingCents: totals.outstandingCents },
     }];
     // dettaglio giornaliero per ciascuna liquidazione
-    const ids = list.map((s) => s.id);
+    const ids = list.filter(s => s.status !== "annullata").map((s) => s.id);
     const days = ids.length ? await db.select({ w: workLogs, name: operators.name }).from(workLogs).innerJoin(operators, eq(operators.id, workLogs.operatorId)).where(inArray(workLogs.settlementId, ids)).orderBy(asc(operators.name), asc(workLogs.workDate)) : [];
     sheets.push({ name: "Dettaglio giornaliero", columns: [{ key: "name", label: "Operatore", width: 14 }, { key: "workDate", label: "Data", width: 11 }, { key: "clockIn", label: "Entrata", width: 8 }, { key: "clockOut", label: "Uscita", width: 8 }, { key: "breakMin", label: "Pausa", width: 7 }, { key: "effectiveMin", label: "Minuti", width: 8 }, { key: "amountCents", label: "Importo", money: true, width: 10 }, { key: "note", label: "Note", width: 20 }],
       rows: days.map((x) => ({ ...x.w, name: x.name })) });
     const title = `liquidazioni-${q.from}-${q.to}`;
-    return q.format === "xlsx" ? sendXlsx(res, title, sheets) : sendPdf(res, title, "Liquidazioni collaboratori", `Periodo ${q.from} – ${q.to}`, sheets, "Calcolo gestionale interno: non sostituisce cedolini, fatture o adempimenti fiscali e del lavoro.");
+    return q.format === "xlsx" ? sendXlsx(res, title, sheets) : sendPdf(res, title, "Liquidazioni collaboratori", `Periodo ${q.from} – ${q.to}`, sheets, "Liquidazioni annullate escluse dai totali. Calcolo gestionale interno: non sostituisce cedolini, fatture o adempimenti fiscali e del lavoro.");
   }
   res.json(list);
 }));
