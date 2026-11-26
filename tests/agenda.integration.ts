@@ -119,6 +119,30 @@ if (process.argv.includes("--cleanup-browser")) {
     assert.equal((await call(`${list(f.nextDay)}&operatorId=${f.opIds[0]}`)).data.filter((a: any) => a.id === second.id).length, 1);
     const detail = await call(`admin/appointments/${second.id}`);
     assert.equal(detail.data.status, "proposta", "Proposta non confermata automaticamente");
+    // Payment can be requested before a final operator is assigned. Moving it
+    // must transfer the reservation, not merely validate a different operator.
+    await db.insert(operatorServices).values({ operatorId: f.opIds[1], serviceId: f.serviceIds[1] });
+    const unpaid = await insertRequest(f.day, "08:00");
+    const payment = await call(`admin/appointments/${unpaid.id}/action`, "POST", {
+      action: "richiedi_pagamento", paymentMode: "acconto", depositCents: 1000, finalPriceCents: 10000,
+    });
+    assert.equal(payment.status, 200, JSON.stringify(payment.data));
+    assert.equal(payment.data.status, "attesa_pagamento");
+    assert.equal(payment.data.operatorId, null);
+    assert.equal(payment.data.reservedOperatorId, f.opIds[0]);
+    const transferred = await call(`admin/appointments/${unpaid.id}`, "PATCH", {
+      date: f.nextDay, time: "18:00", operatorId: f.opIds[1], durationMin: 60, expectedUpdatedAt: payment.data.updatedAt,
+    });
+    assert.equal(transferred.status, 200, JSON.stringify(transferred.data));
+    assert.equal(transferred.data.status, "attesa_pagamento");
+    assert.equal(transferred.data.operatorId, null);
+    assert.equal(transferred.data.reservedOperatorId, f.opIds[1], "Riserva trasferita al nuovo operatore senza assegnazione definitiva");
+    const operatorATarget = await call(`admin/slots?operatorId=${f.opIds[0]}&date=${f.nextDay}&durationMin=60`);
+    const operatorASource = await call(`admin/slots?operatorId=${f.opIds[0]}&date=${f.day}&durationMin=60`);
+    const operatorBTarget = await call(`admin/slots?operatorId=${f.opIds[1]}&date=${f.nextDay}&durationMin=60`);
+    assert.ok(operatorATarget.data[f.opIds[0]].includes("18:00"), "A non resta bloccato nel nuovo orario di B");
+    assert.ok(operatorASource.data[f.opIds[0]].includes("08:00"), "Liberato il precedente orario di A");
+    assert.ok(!operatorBTarget.data[f.opIds[1]].includes("18:00"), "B risulta effettivamente riservato");
     // A separate pending request is left only when explicitly preparing a browser verification.
     const browserRequest = await insertRequest(f.day, "10:00");
     f.requestId = browserRequest.id;

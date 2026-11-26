@@ -178,7 +178,7 @@ r.patch("/appointments/:id", requirePerm("agenda_edit"), h(async (req, res) => {
     const patch: any = {
       startAt: start, endAt: new Date(start.getTime() + dur * 60_000), durationMin: dur, updatedAt: new Date(),
       // Moving an unconfirmed request must not silently assign or confirm it.
-      ...(!a.operatorId && ["richiesta", "in_valutazione"].includes(a.status)
+      ...(!a.operatorId && active
         ? { operatorId: null, reservedOperatorId: op }
         : { operatorId: a.operatorId ? op : null }),
       ...(start.getTime() !== a.startAt.getTime() ? { reminderSentAt: null } : {}),
