@@ -8,6 +8,7 @@ import { crud } from "../../crud";
 import { audit } from "../../services/audit";
 import { h, HttpError, id, slugify, zDay, zTime, zOptStr } from "../../util";
 import { isValidPriceRange } from "../../../shared/service-pricing";
+import { SIZES, SIZE_LABELS } from "../../../shared/constants";
 
 const r = Router();
 
@@ -68,9 +69,16 @@ const pricingRulesSchema = z.array(pricingRuleSchema).max(100).superRefine((rule
 });
 
 const variantsSchema = z.array(z.object({
-  size: z.enum(["piccola", "media", "grande", "gigante"]),
-  priceCents: z.number().int().min(0).nullable(), durationMin: z.number().int().min(5).max(600).nullable(),
-})).max(4);
+  size: z.enum(SIZES, { errorMap: () => ({ message: "Taglia non valida: scegli Mini, Piccola, Media, Grande o Gigante." }) }),
+  priceCents: z.number({ invalid_type_error: "Indica un prezzo valido." }).int("Il prezzo deve essere espresso in centesimi interi.").min(0, "Il prezzo non può essere negativo.").nullable(),
+  durationMin: z.number({ invalid_type_error: "Indica una durata valida in minuti." }).int("La durata deve essere un numero intero di minuti.").min(5, "La durata deve essere di almeno 5 minuti.").max(600, "La durata non può superare 600 minuti.").nullable(),
+})).max(SIZES.length, `Puoi inserire al massimo ${SIZES.length} varianti: una per ciascuna taglia.`).superRefine((variants, ctx) => {
+  const seen = new Set<string>();
+  variants.forEach((variant, index) => {
+    if (seen.has(variant.size)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: [index, "size"], message: `La taglia ${SIZE_LABELS[variant.size]} è già presente: modifica la variante esistente.` });
+    seen.add(variant.size);
+  });
+});
 
 async function saveServiceChildren(tx: any, serviceId: number, body: any) {
   if (body.variants) {
