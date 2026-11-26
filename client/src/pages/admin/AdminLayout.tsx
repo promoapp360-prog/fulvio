@@ -1,12 +1,12 @@
 import { useState } from "react";
 import { Link, Route, Switch, useLocation, Redirect } from "wouter";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   LayoutDashboard, CalendarDays, Inbox, Users, Scissors, UserCog, Clock, Wallet, Droplets, Star, Package, Boxes, Truck, ShoppingCart,
-  Home, FileText, Megaphone, BarChart3, ShieldCheck, Settings, Menu, X, LogOut, Globe, Dog, CalendarClock, HandCoins, Percent, Search,
+  Home, FileText, Megaphone, BarChart3, ShieldCheck, Settings, Menu, X, LogOut, Globe, Dog, CalendarClock, HandCoins, Percent, Search, RefreshCw,
 } from "lucide-react";
 import { Logo } from "@/components/brand";
-import { Spinner, Empty } from "@/components/ui";
+import { Spinner, Empty, useToast } from "@/components/ui";
 import { get } from "@/lib/api";
 import { useMe, useLogout, can, isStaffRole } from "@/lib/auth";
 import Dashboard from "./Dashboard";
@@ -60,8 +60,22 @@ export default function AdminArea() {
   const { data: me, isLoading } = useMe();
   const [loc] = useLocation();
   const [open, setOpen] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const qc = useQueryClient();
+  const toast = useToast();
   const logout = useLogout();
   const { data: dash } = useQuery<any>({ queryKey: ["dashboard"], queryFn: () => get("/api/admin/dashboard"), enabled: isStaffRole(me ?? null), refetchInterval: 30_000 });
+  const refresh = async () => {
+    if (refreshing) return;
+    if (!navigator.onLine) { toast("Sei offline: connettiti a Internet per aggiornare i dati.", "err"); return; }
+    setRefreshing(true);
+    try {
+      await qc.refetchQueries({ type: "active" }, { throwOnError: true, cancelRefetch: false });
+      toast("Dati aggiornati");
+    } catch {
+      toast("Non è stato possibile aggiornare tutti i dati. Riprova.", "err");
+    } finally { setRefreshing(false); }
+  };
   if (isLoading) return <Spinner />;
   if (!me) return <Redirect to={`/login?next=${encodeURIComponent(loc)}`} />;
   if (!isStaffRole(me)) return <Redirect to="/account" />;
@@ -96,10 +110,16 @@ export default function AdminArea() {
       </aside>
       {open && <div className="fixed inset-0 z-30 bg-black/30 lg:hidden" onClick={() => setOpen(false)} />}
       <div className="min-w-0 flex-1">
-        <header className="sticky top-0 z-20 flex h-14 items-center justify-between border-b border-slate-200 bg-white px-4">
+        <header className="sticky top-0 z-20 flex h-14 items-center justify-between gap-2 border-b border-slate-200 bg-white px-4">
           <button className="lg:hidden" onClick={() => setOpen(true)} aria-label="Apri menu"><Menu /></button>
-          <p className="text-sm text-slate-500">Gestionale Dog's Planet</p>
-          <p className="text-sm font-bold text-brand-navy">{me.firstName}</p>
+          <p className="hidden min-w-0 truncate text-sm text-slate-500 sm:block">Gestionale Dog's Planet</p>
+          <div className="ml-auto flex shrink-0 items-center gap-3">
+            <button type="button" onClick={refresh} disabled={refreshing} aria-busy={refreshing} className="btn-ghost min-h-11 gap-2 px-3 text-sm disabled:cursor-wait disabled:opacity-60" title="Aggiorna i dati della schermata">
+              <RefreshCw size={16} aria-hidden="true" className={refreshing ? "motion-safe:animate-spin" : ""} />
+              {refreshing ? "Aggiorno…" : "Aggiorna"}
+            </button>
+            <p className="max-w-24 truncate text-sm font-bold text-brand-navy">{me.firstName}</p>
+          </div>
         </header>
         <main className="p-4 sm:p-6">
           <Switch>
