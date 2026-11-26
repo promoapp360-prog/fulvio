@@ -177,6 +177,7 @@ type ActionInput = {
   startAt?: Date; operatorId?: number | null; durationMin?: number; finalPriceCents?: number | null;
   paymentMode?: "nessuno" | "acconto" | "saldo" | "negozio"; depositCents?: number | null; force?: boolean;
   treatmentNotes?: string | null;
+  expectedUpdatedAt?: string;
 };
 
 const ALLOWED: Record<ActionInput["action"], AppointmentStatus[]> = {
@@ -196,6 +197,7 @@ const ALLOWED: Record<ActionInput["action"], AppointmentStatus[]> = {
 export async function applyAction(appointmentId: number, actor: { id: number; role: string }, input: ActionInput) {
   const before = await loadFull(appointmentId);
   const a = before.a;
+  if (input.expectedUpdatedAt && new Date(input.expectedUpdatedAt).getTime() !== a.updatedAt.getTime()) throw new HttpError(409, "L’appuntamento è stato aggiornato: riaprilo prima di riprovare.");
   if (!ALLOWED[input.action].includes(a.status)) throw new HttpError(400, `Azione non consentita nello stato "${STATUS_LABELS[a.status]}"`);
   const isCustomer = actor.role === "customer";
   if (isCustomer && !["accetta_proposta", "rifiuta_proposta", "annulla"].includes(input.action)) throw new HttpError(403, "Permesso negato");
@@ -211,6 +213,9 @@ export async function applyAction(appointmentId: number, actor: { id: number; ro
 
   let earnedPoints = 0;
   const updated = await db.transaction(async (tx) => {
+    const [locked] = await tx.select({ updatedAt: appointments.updatedAt, status: appointments.status }).from(appointments).where(eq(appointments.id, a.id)).for("update");
+    if (!locked || locked.status !== a.status || locked.updatedAt.getTime() !== a.updatedAt.getTime())
+      throw new HttpError(409, "L’appuntamento è stato aggiornato: riaprilo prima di riprovare.");
     const patch: Partial<Appointment> = { updatedAt: new Date() };
     let to: AppointmentStatus = a.status;
     const s = await getSettings();
@@ -290,7 +295,7 @@ export async function applyAction(appointmentId: number, actor: { id: number; ro
     if (input.action === "conferma" || input.action === "accetta_proposta") patch.reminderSentAt = null;
     if (input.reason && !isCustomer && input.action !== "annulla") patch.adminNotes = [a.adminNotes, input.reason].filter(Boolean).join("\n");
     const [u] = await tx.update(appointments).set(patch)
-      .where(and(eq(appointments.id, a.id), eq(appointments.status, a.status), eq(appointments.updatedAt, a.updatedAt))).returning();
+      .where(and(eq(appointments.id, a.id), eq(appointments.status, a.status))).returning();
     if (!u) throw new HttpError(409, "L’appuntamento è stato aggiornato: ricarica prima di riprovare.");
     await logEvent(tx, a.id, actor.id, input.action, a.status, to, { reason: input.reason, force: !!input.force, ...(input.startAt ? { startAt: input.startAt } : {}) });
     if (to === "confermata" && a.status !== to) await notifyAppointmentConfirmed(a.id, tx);

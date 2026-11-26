@@ -5,7 +5,7 @@ import { db } from "../../db";
 import { appointments, appointmentEvents, appointmentPhotos, dogs, guestBookings, guestBookingEvents, guestCustomers, guestDogs, operators, services, users, payments } from "../../../shared/schema";
 import { requirePerm, hasPerm } from "../../auth";
 import { applyAction, logEvent, paidTotal } from "../../services/appointments";
-import { assertSlotFree, quote, operatorSlots, availability } from "../../services/availability";
+import { assertSlotFree, quote, operatorSlots, availability, compatibleOperatorsForServices } from "../../services/availability";
 import { notifyUser } from "../../services/notify";
 import { notifyAppointmentConfirmed } from "../../services/appointment-mail";
 import { cancelOneSignalAppointmentReminder, scheduleOneSignalReminder } from "../../services/onesignal";
@@ -15,10 +15,14 @@ import { romeToDate, addDays, fmtRome } from "../../time";
 import { readStored } from "../../services/storage";
 
 const r = Router();
+// A proposal reserves its proposed time, not the superseded original time.
+const planningStartAt = sql<Date>`case when ${appointments.status}='proposta' then coalesce(${appointments.proposedStartAt}, ${appointments.startAt}) else ${appointments.startAt} end`;
+const planningOperatorId = sql<number>`case when ${appointments.status}='proposta' then coalesce(${appointments.proposedOperatorId}, ${appointments.operatorId}, ${appointments.reservedOperatorId}) else coalesce(${appointments.operatorId}, ${appointments.reservedOperatorId}) end`;
 
 const baseSelect = {
   id: appointments.id, startAt: appointments.startAt, endAt: appointments.endAt, durationMin: appointments.durationMin, status: appointments.status,
   operatorId: appointments.operatorId, serviceId: appointments.serviceId, dogId: appointments.dogId, customerId: appointments.customerId,
+  reservedOperatorId: appointments.reservedOperatorId, proposedOperatorId: appointments.proposedOperatorId, updatedAt: appointments.updatedAt,
   customerNotes: appointments.customerNotes, adminNotes: appointments.adminNotes, changeRequest: appointments.changeRequest,
   coatKnotsToday: appointments.coatKnotsToday, coatSheddingToday: appointments.coatSheddingToday,
   durationNeedsReview: appointments.durationNeedsReview,
@@ -45,14 +49,14 @@ r.get("/appointments", requirePerm("agenda_view"), h(async (req, res) => {
   const q = z.object({ from: zDay, to: zDay, operatorId: z.coerce.number().int().optional(), all: z.string().optional() }).parse(req.query);
   const from = romeToDate(q.from, "00:00"), to = romeToDate(addDays(q.to, 1), "00:00");
   if (to.getTime() - from.getTime() > 1000 * 3600 * 24 * 45) throw new HttpError(400, "Intervallo troppo ampio");
-  const conds = [gte(appointments.startAt, from), lt(appointments.startAt, to)];
+  const conds = [gte(planningStartAt, from), lt(planningStartAt, to)];
   // un operatore senza permessi estesi vede solo la propria agenda
   if (req.user!.role === "operator" && !(req.user!.permissions || []).some((p) => p === "richieste" || p === "agenda_edit")) {
     const [me] = await db.select().from(operators).where(eq(operators.userId, req.user!.id));
     conds.push(eq(appointments.operatorId, me?.id ?? -1));
-  } else if (q.operatorId) conds.push(eq(appointments.operatorId, q.operatorId));
+  } else if (q.operatorId) conds.push(eq(planningOperatorId, q.operatorId));
   if (!q.all) conds.push(inArray(appointments.status, ["richiesta", "in_valutazione", "proposta", "confermata", "attesa_pagamento", "completata", "assente"]));
-  const rows = await joined().where(and(...conds)).orderBy(asc(appointments.startAt));
+  const rows = await joined().where(and(...conds)).orderBy(asc(planningStartAt));
   res.json(rows.map(row => ({ ...row, serviceName: row.servicePriceSnapshot?.map((s: any) => s.name).filter(Boolean).join(", ") || row.serviceName })));
 }));
 
@@ -132,6 +136,7 @@ const actionSchema = z.object({
   depositCents: z.number().int().min(0).nullable().optional(),
   force: z.boolean().optional(),
   treatmentNotes: zOptStr(4000),
+  expectedUpdatedAt: z.string().datetime().optional(),
 });
 
 r.post("/appointments/:id/action", requirePerm("richieste"), h(async (req, res) => {
@@ -150,25 +155,39 @@ r.patch("/appointments/:id", requirePerm("agenda_edit"), h(async (req, res) => {
     durationMin: z.number().int().min(5).max(600).optional(), finalPriceCents: z.number().int().min(0).nullable().optional(),
     estimatedPriceCents: z.number().int().min(0).nullable().optional(), adminNotes: zOptStr(4000), treatmentNotes: zOptStr(4000), paymentMode: z.enum(["nessuno", "acconto", "saldo", "negozio"]).optional(),
     depositCents: z.number().int().min(0).nullable().optional(), clearChangeRequest: z.boolean().optional(), force: z.boolean().optional(),
+    expectedUpdatedAt: z.string().datetime().optional(),
   }).parse(req.body);
+  if (!!d.date !== !!d.time) throw new HttpError(400, "Indica sia la data sia l’ora");
   if (d.force && req.user!.role !== "admin") throw new HttpError(403, "Solo l'amministratore può autorizzare sovrapposizioni");
   const out = await db.transaction(async (tx) => {
-    const [a] = await tx.select().from(appointments).where(eq(appointments.id, aid));
+    const [a] = await tx.select().from(appointments).where(eq(appointments.id, aid)).for("update");
     if (!a) throw new HttpError(404, "Non trovato");
+    if (d.expectedUpdatedAt && new Date(d.expectedUpdatedAt).getTime() !== a.updatedAt.getTime()) throw new HttpError(409, "L’appuntamento è stato aggiornato: riaprilo prima di riprovare.");
     const start = d.date && d.time ? romeToDate(d.date, d.time) : a.startAt;
-    const op = d.operatorId ?? a.operatorId;
+    const op = d.operatorId ?? a.operatorId ?? a.reservedOperatorId;
     const dur = d.durationMin ?? a.durationMin;
-    const timingChanged = start.getTime() !== a.startAt.getTime() || op !== a.operatorId || dur !== a.durationMin;
+    const timingChanged = start.getTime() !== a.startAt.getTime() || op !== (a.operatorId ?? a.reservedOperatorId) || dur !== a.durationMin;
     const active = ["richiesta", "in_valutazione", "proposta", "confermata", "attesa_pagamento"].includes(a.status);
-    if (timingChanged && active && op && !d.force) await assertSlotFree(tx, op, start, dur, a.id);
+    if (timingChanged && active) {
+      if (a.status === "proposta") throw new HttpError(400, "Per cambiare una proposta usa «Proponi questo orario» o confermala esplicitamente.");
+      if (!op) throw new HttpError(400, "Scegli un operatore abilitato per verificare l’orario");
+      if (!(await compatibleOperatorsForServices(a.requestedServiceIds?.length ? a.requestedServiceIds : [a.serviceId], false, tx)).some((o: any) => o.id === op))
+        throw new HttpError(400, "L’operatore deve essere abilitato a tutti i servizi richiesti");
+      if (!d.force) await assertSlotFree(tx, op, start, dur, a.id);
+    }
     const patch: any = {
-      startAt: start, endAt: new Date(start.getTime() + dur * 60_000), operatorId: op, durationMin: dur, updatedAt: new Date(),
+      startAt: start, endAt: new Date(start.getTime() + dur * 60_000), durationMin: dur, updatedAt: new Date(),
+      // Moving an unconfirmed request must not silently assign or confirm it.
+      ...(!a.operatorId && ["richiesta", "in_valutazione"].includes(a.status)
+        ? { operatorId: null, reservedOperatorId: op }
+        : { operatorId: a.operatorId ? op : null }),
       ...(start.getTime() !== a.startAt.getTime() ? { reminderSentAt: null } : {}),
       ...(d.force ? { allowOverlap: true } : {}),
     };
     for (const k of ["finalPriceCents", "estimatedPriceCents", "adminNotes", "treatmentNotes", "paymentMode", "depositCents"] as const) if (d[k] !== undefined) patch[k] = d[k];
     if (d.clearChangeRequest) patch.changeRequest = null;
     const [u] = await tx.update(appointments).set(patch).where(eq(appointments.id, aid)).returning();
+    if (!u) throw new HttpError(409, "L’appuntamento è stato aggiornato: riaprilo prima di riprovare.");
     await logEvent(tx, aid, req.user!.id, "modifica", a.status, a.status, { ...d, startTimeChanged: start.getTime() !== a.startAt.getTime(), before: { startAt: a.startAt, operatorId: a.operatorId, durationMin: a.durationMin } });
     return { u, timingChanged, a };
   });

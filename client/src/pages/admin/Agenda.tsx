@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
 import { PageTitle, Tabs, Spinner, Modal, Field, MoneyInput, Check, ErrorBox, Empty, StatusBadge, useToast } from "@/components/ui";
@@ -7,9 +7,10 @@ import { useMe, can } from "@/lib/auth";
 import { todayISO, addDaysISO, weekdayISO, romeParts, fmtDay, fmtDateTime } from "@/lib/format";
 import { STATUS_COLORS, STATUS_LABELS, WEEKDAYS, euro } from "@shared/constants";
 import AppointmentDetail, { useAdminOperators } from "./AppointmentDetail";
+import AgendaDay from "./AgendaDay";
+import { isPendingRequest, planningStart, requestColor } from "@shared/agenda-planning";
 
 type View = "giorno" | "settimana" | "mese";
-const START_H = 8, END_H = 20, PX_PER_MIN = 1.3;
 
 function rangeFor(view: View, day: string) {
   if (view === "giorno") return { from: day, to: day };
@@ -27,73 +28,38 @@ export default function Agenda() {
   const [creating, setCreating] = useState(false);
   const { data: ops } = useAdminOperators();
   const r = rangeFor(view, day);
-  const { data, isLoading } = useQuery<any[]>({ queryKey: ["agenda", r.from, r.to, opFilter], queryFn: () => get(`/api/admin/appointments?from=${r.from}&to=${r.to}${opFilter ? `&operatorId=${opFilter}` : ""}`), refetchInterval: 120_000 });
+  const { data, isLoading, error } = useQuery<any[]>({ queryKey: ["agenda", r.from, r.to, opFilter], queryFn: () => get(`/api/admin/appointments?from=${r.from}&to=${r.to}${opFilter ? `&operatorId=${opFilter}` : ""}`), refetchInterval: 30_000 });
   const step = view === "giorno" ? 1 : view === "settimana" ? 7 : 30;
   const move = (n: number) => setDay(view === "mese" ? (() => { const [y, m] = day.split("-").map(Number); const d = new Date(Date.UTC(y, m - 1 + n, 1)); return d.toISOString().slice(0, 10); })() : addDaysISO(day, n * step));
-  const visibleOps = (ops || []).filter((o) => o.active && (!opFilter || String(o.id) === opFilter));
+  const visibleOps = (ops || []).filter((o) => (o.active || data?.some(a => a.operatorId === o.id)) && (!opFilter || String(o.id) === opFilter));
 
   return (
     <div>
       <PageTitle title="Agenda" subtitle={view === "giorno" ? `${WEEKDAYS[weekdayISO(day)]} ${fmtDay(day)}` : `${fmtDay(r.from)} – ${fmtDay(r.to)}`}>
         {can(me ?? null, "agenda_edit") && <button className="btn-primary btn-sm" onClick={() => setCreating(true)}><Plus size={14} /> Nuovo appuntamento</button>}
       </PageTitle>
-      <div className="mb-4 flex flex-wrap items-center gap-2">
+      <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-2">
         <Tabs value={view} onChange={setView} items={[{ value: "giorno", label: "Giorno" }, { value: "settimana", label: "Settimana" }, { value: "mese", label: "Mese" }]} />
-        <div className="mb-4 flex items-center gap-1">
+        <div className="mb-2 flex max-w-full flex-wrap items-center gap-1">
           <button className="btn-ghost btn-sm" onClick={() => move(-1)} aria-label="Precedente"><ChevronLeft size={16} /></button>
           <button className="btn-outline btn-sm" onClick={() => setDay(todayISO())}>Oggi</button>
           <button className="btn-ghost btn-sm" onClick={() => move(1)} aria-label="Successivo"><ChevronRight size={16} /></button>
-          <input type="date" className="input ml-2 w-40" value={day} onChange={(e) => e.target.value && setDay(e.target.value)} />
-          <select className="input ml-2 w-44" value={opFilter} onChange={(e) => setOpFilter(e.target.value)} aria-label="Operatore">
+          <label className="ml-1 flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-2">
+            <span className="text-sm font-bold text-brand-navy">{WEEKDAYS[weekdayISO(day)]}</span>
+            <input type="date" aria-label="Giorno in agenda" className="input w-36 border-0 px-1" value={day} onChange={(e) => /^\d{4}-\d{2}-\d{2}$/.test(e.target.value) && setDay(e.target.value)} />
+          </label>
+          <select className="input w-44 max-w-full" value={opFilter} onChange={(e) => setOpFilter(e.target.value)} aria-label="Operatore">
             <option value="">Tutti gli operatori</option>{ops?.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
           </select>
         </div>
       </div>
-      <div className="mb-3 flex flex-wrap gap-3 text-xs">{Object.entries(STATUS_LABELS).filter(([k]) => !["annullata", "rifiutata"].includes(k)).map(([k, v]) => <span key={k} className="flex items-center gap-1"><span className="h-3 w-3 rounded" style={{ background: STATUS_COLORS[k] }} />{v}</span>)}</div>
-      {isLoading ? <Spinner /> : view === "giorno" ? <DayView day={day} apps={data || []} ops={visibleOps} onOpen={setOpen} />
+      <div className="mb-3 flex flex-wrap gap-x-3 gap-y-1 text-xs">{Object.entries(STATUS_LABELS).filter(([k]) => !["annullata", "rifiutata"].includes(k)).map(([k, v]) => <span key={k} className="flex items-center gap-1"><span className="h-3 w-3 rounded" style={{ background: isPendingRequest(k) ? requestColor : STATUS_COLORS[k] }} />{v}</span>)}</div>
+      <ErrorBox error={error} />
+      {isLoading ? <Spinner /> : view === "giorno" ? <AgendaDay day={day} apps={data || []} ops={visibleOps} onOpen={setOpen} />
         : view === "settimana" ? <WeekView from={r.from} apps={data || []} onOpen={setOpen} onDay={(d) => { setDay(d); setView("giorno"); }} />
         : <MonthView from={r.from} to={r.to} apps={data || []} onDay={(d) => { setDay(d); setView("giorno"); }} />}
       <AppointmentDetail id={open} onClose={() => setOpen(null)} />
       {creating && <NewAppointment day={day} onClose={() => setCreating(false)} />}
-    </div>
-  );
-}
-
-function DayView({ day, apps, ops, onOpen }: { day: string; apps: any[]; ops: any[]; onOpen: (id: number) => void }) {
-  const wd = weekdayISO(day);
-  const hours = Array.from({ length: END_H - START_H + 1 }, (_, i) => START_H + i);
-  const height = (END_H - START_H) * 60 * PX_PER_MIN;
-  const top = (d: string) => { const { time } = romeParts(d); const [h, m] = time.split(":").map(Number); return ((h - START_H) * 60 + m) * PX_PER_MIN; };
-  if (!ops.length) return <Empty>Nessun operatore attivo.</Empty>;
-  return (
-    <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
-      <div className="flex min-w-max">
-        <div className="w-14 shrink-0 border-r border-slate-100 pt-10">
-          <div className="relative" style={{ height }}>{hours.map((h) => <div key={h} className="absolute -translate-y-2 pl-2 text-xs text-slate-400" style={{ top: (h - START_H) * 60 * PX_PER_MIN }}>{h}:00</div>)}</div>
-        </div>
-        {ops.map((o) => {
-          const shifts = o.shifts.filter((s: any) => s.weekday === wd);
-          const mine = apps.filter((a) => a.operatorId === o.id);
-          const toPx = (t: string) => { const [h, m] = t.split(":").map(Number); return ((h - START_H) * 60 + m) * PX_PER_MIN; };
-          return (
-            <div key={o.id} className="w-56 shrink-0 border-r border-slate-100">
-              <div className="sticky top-0 flex h-10 items-center gap-2 border-b border-slate-100 px-2 text-sm font-bold"><span className="h-3 w-3 rounded-full" style={{ background: o.color }} />{o.name}</div>
-              <div className="relative bg-slate-50" style={{ height }}>
-                {shifts.map((s: any, i: number) => <div key={i} className="absolute inset-x-0 bg-white" style={{ top: toPx(s.startTime), height: toPx(s.endTime) - toPx(s.startTime) }} />)}
-                {shifts.filter((s: any) => s.breakStart && s.breakEnd).map((s: any, i: number) => <div key={"b" + i} className="absolute inset-x-0 bg-slate-100 text-center text-[10px] text-slate-400" style={{ top: toPx(s.breakStart), height: toPx(s.breakEnd) - toPx(s.breakStart) }}>pausa</div>)}
-                {hours.map((h) => <div key={h} className="absolute inset-x-0 border-t border-slate-100" style={{ top: (h - START_H) * 60 * PX_PER_MIN }} />)}
-                {mine.map((a) => (
-                  <button key={a.id} onClick={() => onOpen(a.id)} className="absolute inset-x-1 overflow-hidden rounded-lg p-1.5 text-left text-xs text-white shadow"
-                    style={{ top: top(a.startAt), height: Math.max(22, a.durationMin * PX_PER_MIN - 2), background: STATUS_COLORS[a.status] }}>
-                    <b>{romeParts(a.startAt).time}</b> {a.dogName}{a.dogAggressive ? " ⚠" : ""}<br /><span className="opacity-90">{a.serviceName} · {a.customerName}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-      {apps.filter((a) => !a.operatorId).length > 0 && <div className="border-t p-3 text-sm">Senza operatore: {apps.filter((a) => !a.operatorId).map((a) => <button key={a.id} className="mr-2 underline" onClick={() => onOpen(a.id)}>{a.dogName}</button>)}</div>}
     </div>
   );
 }
@@ -103,13 +69,13 @@ function WeekView({ from, apps, onOpen, onDay }: { from: string; apps: any[]; on
   return (
     <div className="grid gap-2 md:grid-cols-7">
       {days.map((d) => {
-        const list = apps.filter((a) => romeParts(a.startAt).day === d);
+        const list = apps.filter((a) => romeParts(planningStart(a)).day === d);
         return (
           <div key={d} className={`min-h-[160px] rounded-2xl border bg-white p-2 ${d === todayISO() ? "border-brand-turquoise" : "border-slate-200"}`}>
             <button className="mb-2 w-full text-left text-sm font-bold text-brand-navy" onClick={() => onDay(d)}>{WEEKDAYS[weekdayISO(d)].slice(0, 3)} {d.slice(8)}/{d.slice(5, 7)} <span className="text-xs font-normal text-slate-400">({list.length})</span></button>
             <div className="space-y-1">{list.map((a) => (
-              <button key={a.id} onClick={() => onOpen(a.id)} className="block w-full rounded-lg px-2 py-1 text-left text-xs" style={{ background: STATUS_COLORS[a.status] + "22", borderLeft: `3px solid ${a.operatorColor || STATUS_COLORS[a.status]}` }}>
-                <b>{romeParts(a.startAt).time}</b> {a.dogName}<br /><span className="text-slate-500">{a.operatorName} · {a.serviceName}</span>
+              <button key={a.id} onClick={() => onOpen(a.id)} className="block min-h-11 w-full rounded-lg px-2 py-1 text-left text-xs" style={{ background: (isPendingRequest(a.status) ? requestColor : STATUS_COLORS[a.status]) + "22", borderLeft: `3px solid ${isPendingRequest(a.status) ? requestColor : a.operatorColor || STATUS_COLORS[a.status]}` }}>
+                <b>{romeParts(planningStart(a)).time}</b> {a.dogName}<br /><span className="text-slate-600">{isPendingRequest(a.status) ? "Da confermare · " : ""}{a.serviceName}</span>
               </button>
             ))}</div>
           </div>
@@ -128,7 +94,7 @@ function MonthView({ from, to, apps, onDay }: { from: string; to: string; apps: 
       {["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"].map((w) => <div key={w} className="p-1 text-center text-xs font-bold text-slate-500">{w}</div>)}
       {days.map((d, i) => {
         if (!d) return <div key={"e" + i} />;
-        const list = apps.filter((a) => romeParts(a.startAt).day === d);
+        const list = apps.filter((a) => romeParts(planningStart(a)).day === d);
         const pending = list.filter((a) => ["richiesta", "in_valutazione"].includes(a.status)).length;
         return (
           <button key={d} onClick={() => onDay(d)} className={`min-h-[80px] rounded-xl border bg-white p-1.5 text-left text-xs ${d === todayISO() ? "border-brand-turquoise" : "border-slate-200"}`}>
@@ -210,7 +176,7 @@ export function Requests() {
   const params = new URLSearchParams(window.location.search);
   const [status, setStatus] = useState("aperte");
   const [open, setOpen] = useState<number | null>(params.get("id") ? Number(params.get("id")) : null);
-  const { data, isLoading } = useQuery<any[]>({ queryKey: ["requests", status], queryFn: () => get(`/api/admin/requests?status=${status}`), enabled: status !== "storico", refetchInterval: 120_000 });
+  const { data, isLoading } = useQuery<any[]>({ queryKey: ["requests", status], queryFn: () => get(`/api/admin/requests?status=${status}`), enabled: status !== "storico", refetchInterval: 30_000 });
   return (
     <div>
       <PageTitle title="Richieste di prenotazione" subtitle="Solo clienti registrati. Nessuna richiesta diventa definitiva senza la tua conferma." />
